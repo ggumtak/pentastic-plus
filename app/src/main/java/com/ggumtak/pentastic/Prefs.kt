@@ -13,4 +13,9 @@ class Prefs(context: Context) {
     var model: String
         get() = sp.getString("model", ClaudeTutor.MODEL_HAIKU) ?: ClaudeTutor.MODEL_HAIKU
         set(v) = sp.edit().putString("model", v).apply()
+
+    /** 드래그가 끝나자마자 '해석·문법'을 자동으로 물어볼지 (기본: 꺼짐 — 누르기 전엔 전송 안 함) */
+    var autoAsk: Boolean
+        get() = sp.getBoolean("auto_ask", false)
+        set(v) = sp.edit().putBoolean("auto_ask", v).apply()
 }

@@ -25,7 +25,7 @@ import kotlin.math.roundToInt
 class SelectionView(
     context: Context,
     private val shot: Bitmap,
-    private val onSelected: (Rect) -> Unit,
+    private val onSelected: (bitmapRect: Rect, screenRect: Rect) -> Unit,
     private val onCancel: () -> Unit,
 ) : View(context) {
 
@@ -139,8 +139,12 @@ class SelectionView(
         val top = ((r.top + loc[1]) * scale).roundToInt().coerceIn(0, shot.height - 1)
         val right = ((r.right + loc[0]) * scale).roundToInt().coerceIn(left + 1, shot.width)
         val bottom = ((r.bottom + loc[1]) * scale).roundToInt().coerceIn(top + 1, shot.height)
+        val screenRect = Rect(
+            (r.left + loc[0]).roundToInt(), (r.top + loc[1]).roundToInt(),
+            (r.right + loc[0]).roundToInt(), (r.bottom + loc[1]).roundToInt(),
+        )
         finished = true
-        onSelected(Rect(left, top, right, bottom))
+        onSelected(Rect(left, top, right, bottom), screenRect)
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {

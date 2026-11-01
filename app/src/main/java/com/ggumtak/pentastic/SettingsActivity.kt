@@ -14,6 +14,7 @@ import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.ScrollView
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 
@@ -40,7 +41,7 @@ class SettingsActivity : Activity() {
             textSize = 24f
             setTypeface(typeface, Typeface.BOLD)
         })
-        col.addView(body("S펜 버튼을 길게 눌러 화면을 멈추고, 펜으로 드래그한 부분을 Claude에게 바로 질문합니다. 아래 4단계를 한 번만 하면 됩니다."))
+        col.addView(body("S펜 버튼을 길게 눌러 화면을 멈추고, 펜으로 드래그한 부분을 Claude에게 바로 질문합니다. 답은 보던 화면 위에 작은 카드로 뜹니다. 아래 4단계를 한 번만 하면 됩니다."))
 
         // 1. 접근성
         col.addView(section("1. 화면 캡처 권한 켜기"))
@@ -96,6 +97,16 @@ class SettingsActivity : Activity() {
         }
         col.addView(group)
         col.addView(body("바뀐 모델은 다음 캡처부터 적용됩니다."))
+
+        // 빠르게 보기
+        col.addView(section("빠르게 보기 (선택)"))
+        col.addView(Switch(this).apply {
+            text = "드래그하자마자 '해석·문법'을 바로 물어보기"
+            textSize = 15f
+            isChecked = prefs.autoAsk
+            setOnCheckedChangeListener { _, on -> prefs.autoAsk = on }
+        }, matchWrap())
+        col.addView(body("켜면 버튼을 누르지 않아도 답이 바로 나옵니다. 끄면(기본) 버튼을 누르거나 직접 질문을 보내기 전에는 아무것도 전송되지 않습니다."))
 
         // 4. 펜 버튼
         col.addView(section("4. 펜 버튼 길게 누르기에 연결"))

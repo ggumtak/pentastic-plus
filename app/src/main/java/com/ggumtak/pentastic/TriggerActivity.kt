@@ -18,9 +18,7 @@ class TriggerActivity : Activity() {
                 Intent(this, SettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             )
         } else {
-            // 이전 질문 창이 떠 있으면 닫고, 닫히는 애니메이션이 끝난 뒤 캡처한다.
-            val closedPanel = AskActivity.closeIfOpen()
-            service.requestCapture(if (closedPanel) 650L else 350L)
+            service.requestCapture(CaptureService.TRIGGER_DELAY_MS)
         }
         finish()
         @Suppress("DEPRECATION")

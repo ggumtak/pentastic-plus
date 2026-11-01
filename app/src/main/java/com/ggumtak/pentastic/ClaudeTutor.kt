@@ -24,18 +24,13 @@ import java.util.Base64
 
 /**
  * 캡처한 이미지 한 장을 두고 이어지는 짧은 일본어 질문 대화.
+ * 클라이언트(연결)는 서비스가 오래 들고 있고, 대화(ClaudeTutor)는 캡처마다 새로 만든다.
  * Android 의존성이 없어서 JVM에서 그대로 테스트할 수 있다.
  */
 class ClaudeTutor(
-    apiKey: String,
+    private val client: AnthropicClient,
     private val model: String,
-    baseUrl: String? = null,
 ) {
-    private val client: AnthropicClient = AnthropicOkHttpClient.builder()
-        .apiKey(apiKey)
-        .apply { if (baseUrl != null) baseUrl(baseUrl) }
-        .build()
-
     /** 지금까지 주고받은 메시지 (첫 user 메시지에 이미지가 들어 있다). */
     private val history = mutableListOf<MessageParam>()
 
@@ -126,14 +121,62 @@ class ClaudeTutor(
         return answer
     }
 
-    fun close() {
+    /** 진행 중인 답변을 멈춘다. 공유 클라이언트는 닫지 않는다. */
+    fun cancel() {
         cancelled = true
-        client.close()
     }
 
     class TutorException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
     companion object {
+        fun newClient(apiKey: String, baseUrl: String? = null): AnthropicClient =
+            AnthropicOkHttpClient.builder()
+                .apiKey(apiKey)
+                .apply { if (baseUrl != null) baseUrl(baseUrl) }
+                .build()
+
+        /**
+         * 첫 질문이 느리지 않게 SDK 클래스(요청 조립·JSON 변환)를 미리 불러 둔다. 네트워크는 쓰지 않는다.
+         */
+        fun warmUpClasses() {
+            try {
+                val params = MessageCreateParams.builder()
+                    .model(MODEL_HAIKU)
+                    .maxTokens(16L)
+                    .system("warm")
+                    .addUserMessageOfContentBlockParams(
+                        listOf(
+                            ContentBlockParam.ofImage(
+                                ImageBlockParam.builder().source(
+                                    Base64ImageSource.builder()
+                                        .mediaType(Base64ImageSource.MediaType.IMAGE_PNG)
+                                        .data("AA==")
+                                        .build()
+                                ).build()
+                            ),
+                            ContentBlockParam.ofText(TextBlockParam.builder().text("warm").build()),
+                        )
+                    )
+                    .outputConfig(OutputConfig.builder().effort(OutputConfig.Effort.LOW).build())
+                    .thinking(ThinkingConfigDisabled.builder().build())
+                    .build()
+                com.anthropic.core.jsonMapper().writeValueAsString(params._body())
+                MessageAccumulator.create()
+            } catch (_: Throwable) {
+            }
+        }
+
+        /**
+         * API 서버와의 연결(TLS)을 미리 열어 둔다. 토큰을 쓰지 않는 모델 목록 조회라 비용이 없다.
+         * 화면을 고르는 동안 실행해서, 질문을 누르는 순간 바로 전송되게 한다.
+         */
+        fun prewarmConnection(client: AnthropicClient) {
+            try {
+                client.models().list()
+            } catch (_: Throwable) {
+            }
+        }
+
         const val MODEL_HAIKU = "claude-haiku-5-5"
         const val MODEL_SONNET = "claude-sonnet-5-5"
 
@@ -143,11 +186,11 @@ class ClaudeTutor(
 
             규칙:
             - 먼저 이미지 속 일본어를 정확히 읽습니다. 흐리거나 잘려서 확실하지 않은 글자는 추측하지 말고 그렇다고 말합니다.
-            - 한국어로, 짧고 정확하게 답합니다. 질문에 필요한 내용만 씁니다.
+            - 답은 화면 위에 떠 있는 작은 카드에 표시됩니다. 한국어로, 결론부터, 보통 8줄 이내로 짧고 정확하게 답합니다. 인사말이나 질문 되풀이는 쓰지 않습니다.
             - 일본어를 인용할 때는 처음 한 번 괄호 안에 히라가나 읽기를 붙입니다. 예: 勉強(べんきょう)
             - "왜 이런 뜻이 되는지" 질문에는 문장을 덩어리로 나눠 각 부분(활용형, 조사, 문형)이 하는 역할을 설명합니다.
             - 한자 예시 요청에는 음독·훈독과 자주 쓰는 단어 3~5개를 읽기·뜻과 함께 듭니다.
-            - 화면이 작은 패널이므로 마크다운 기호(#, **, 표, 코드블록)는 쓰지 말고, 일반 문장과 '・' 목록만 씁니다.
+            - 마크다운 기호(#, **, 표, 코드블록)는 쓰지 말고, 일반 문장과 '・' 목록만 씁니다.
             - 확실하지 않은 문법 설명은 확실하지 않다고 밝힙니다.
         """.trimIndent()
 
