@@ -94,8 +94,8 @@ class CaptureService : AccessibilityService() {
             removeSelector()
         }
         pendingSince = now
-        // 떠 있는 카드가 있으면 바로 닫는다 (오버레이라 애니메이션 대기 없이 사라진다)
-        panel?.close()
+        // 떠 있는 카드는 닫지 않고 잠시 감춘다. 새 캡처는 같은 카드(같은 자리, 같은 대화)에 붙는다.
+        panel?.hideForCapture()
         pending = true
         retried = false
         handler.postDelayed({ capture() }, delayMs)
@@ -114,6 +114,7 @@ class CaptureService : AccessibilityService() {
                         hw.close()
                     }
                     if (shot == null) {
+                        panel?.reveal()
                         toast("화면 캡처에 실패했습니다.")
                         return
                     }
@@ -128,11 +129,13 @@ class CaptureService : AccessibilityService() {
                         return
                     }
                     pending = false
+                    panel?.reveal()
                     toast("화면 캡처에 실패했습니다 (코드 $errorCode).")
                 }
             })
         } catch (e: Exception) {
             pending = false
+            panel?.reveal()
             toast("화면 캡처를 시작하지 못했습니다: ${e.message}")
         }
     }
@@ -169,6 +172,7 @@ class CaptureService : AccessibilityService() {
             onCancel = {
                 removeSelector()
                 shot.recycle()
+                panel?.reveal()
             },
         )
         val lp = WindowManager.LayoutParams(
@@ -222,10 +226,16 @@ class CaptureService : AccessibilityService() {
             }
         }
 
+        val existing = panel
+        if (existing != null) {
+            existing.attachCapture(img) { png.get() }
+            return
+        }
+
         val p = FloatingPanel(
             ctx = this,
-            preview = img,
-            imageBytes = { png.get() },
+            firstPreview = img,
+            firstImage = { png.get() },
             selection = screenRect,
             clientProvider = { client() },
             onOpenSettings = {
@@ -233,6 +243,7 @@ class CaptureService : AccessibilityService() {
                     Intent(this, SettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 )
             },
+            onRecapture = { requestCapture(RECAPTURE_DELAY_MS) },
             onClosed = { panel = null },
         )
         panel = p
@@ -248,6 +259,9 @@ class CaptureService : AccessibilityService() {
 
         /** 에어 액션으로 실행된 투명 화면이 닫힐 시간 */
         const val TRIGGER_DELAY_MS = 180L
+
+        /** 카드의 [캡처] 버튼 / 펜 버튼: 카드가 화면에서 사라질 한 프레임만 기다린다 */
+        const val RECAPTURE_DELAY_MS = 120L
 
         private const val MAX_SIDE = 1568
     }

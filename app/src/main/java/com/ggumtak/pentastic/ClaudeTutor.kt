@@ -39,14 +39,14 @@ class ClaudeTutor(
     var cancelled = false
 
     /**
-     * 질문을 보내고 답변을 스트리밍으로 받는다. 첫 질문에만 이미지를 붙인다.
+     * 질문을 보내고 답변을 스트리밍으로 받는다. image가 있으면 이번 질문에 붙인다 (새 캡처).
      * 성공하면 history에 이번 질문과 답변을 추가한다.
      * @return 최종 답변 텍스트
      * @throws TutorException 사용자에게 보여줄 한국어 메시지를 담은 오류
      */
     fun ask(image: ByteArray?, imageMediaType: String, question: String, onDelta: (String) -> Unit): String {
         val userContent = buildList {
-            if (image != null && history.isEmpty()) {
+            if (image != null) {
                 add(
                     ContentBlockParam.ofImage(
                         ImageBlockParam.builder()
@@ -191,7 +191,8 @@ class ClaudeTutor(
             - 일본어를 인용할 때는 처음 한 번 괄호 안에 히라가나 읽기를 붙입니다. 예: 勉強(べんきょう)
             - "왜 이런 뜻이 되는지" 질문에는 문장을 덩어리로 나눠 각 부분(활용형, 조사, 문형)이 하는 역할을 설명합니다.
             - 한자 예시 요청에는 음독·훈독과 자주 쓰는 단어 3~5개를 읽기·뜻과 함께 듭니다.
-            - 마크다운 기호(#, **, 표, 코드블록)는 쓰지 말고, 일반 문장과 '・' 목록만 씁니다.
+            - 읽기 쉽게: 한 줄에 한 요점, 목록은 '・'로 시작하고, 핵심 일본어 표현과 결론은 **굵게** 표시합니다. 제목(#), 표, 코드블록은 쓰지 않습니다.
+            - 같은 대화에 새 캡처 이미지가 오면, 이전 내용과 이어서 그 이미지에 대해 답합니다.
             - 확실하지 않은 문법 설명은 확실하지 않다고 밝힙니다.
         """.trimIndent()
 
