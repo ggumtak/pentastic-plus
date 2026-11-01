@@ -19,8 +19,8 @@ android {
         versionName = "1.0.$buildNumber"
     }
 
-    // 서명 키는 저장소에 넣지 않는다. GitHub Secrets(SIGNING_KEYSTORE_B64 등)가 있으면 그 키로,
-    // 없으면 빌드마다 새로 만들어지는 디버그 키로 서명한다 (이 경우 업데이트 시 재설치 필요).
+    // 서명 키는 저장소에 넣지 않는다. CI(.github/workflows/build.yml)가 한 번 만든 고정 키를 넘겨준다.
+    // 로컬 빌드처럼 키가 없으면 디버그 키로 서명한다.
     val keystorePath = System.getenv("SIGNING_KEYSTORE_PATH")?.takeIf { file(it).exists() }
     signingConfigs {
         if (keystorePath != null) {
