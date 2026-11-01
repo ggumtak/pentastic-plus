@@ -55,6 +55,15 @@ class CaptureService : AccessibilityService() {
     }
 
     private fun capture() {
+        try {
+            takeScreenshotNow()
+        } catch (e: Exception) {
+            pending = false
+            toast("화면 캡처를 시작하지 못했습니다: ${e.message}")
+        }
+    }
+
+    private fun takeScreenshotNow() {
         takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
             override fun onSuccess(result: ScreenshotResult) {
                 pending = false
