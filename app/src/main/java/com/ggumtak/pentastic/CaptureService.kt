@@ -14,7 +14,6 @@ import android.view.Surface
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.widget.Toast
-import com.anthropic.client.AnthropicClient
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
@@ -38,8 +37,6 @@ class CaptureService : AccessibilityService() {
     private var pendingSince = 0L
     private var selectorSince = 0L
 
-    private var client: AnthropicClient? = null
-    private var clientKey: String? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -63,24 +60,7 @@ class CaptureService : AccessibilityService() {
     private fun cleanup() {
         instance = null
         removeSelector()
-        panel?.close()
-        synchronized(this) {
-            client?.close()
-            client = null
-        }
-    }
-
-    /** API 키가 바뀌지 않는 한 같은 클라이언트(연결 풀)를 계속 쓴다. */
-    @Synchronized
-    fun client(): AnthropicClient? {
-        val key = Prefs(this).apiKey
-        if (key.isBlank()) return null
-        if (client == null || clientKey != key) {
-            client?.close()
-            client = ClaudeTutor.newClient(key)
-            clientKey = key
-        }
-        return client
+        panel?.close(resetSession = false)
     }
 
     // ------------------------------------------------------------------ 캡처
@@ -193,7 +173,7 @@ class CaptureService : AccessibilityService() {
         view.requestFocus()
 
         // 고르는 동안 API 서버 연결을 미리 열어 둔다 (토큰을 쓰지 않는 요청)
-        thread(name = "prewarm") { client()?.let { ClaudeTutor.prewarmConnection(it) } }
+        thread(name = "prewarm") { ApiClient.get(this)?.let { ClaudeTutor.prewarmConnection(it) } }
     }
 
     private fun removeSelector() {
@@ -226,28 +206,40 @@ class CaptureService : AccessibilityService() {
             }
         }
 
+        val session = ChatSession.get(this)
         val existing = panel
-        if (existing != null) {
-            existing.attachCapture(img) { png.get() }
-            return
-        }
-
-        val p = FloatingPanel(
-            ctx = this,
-            firstPreview = img,
-            firstImage = { png.get() },
-            selection = screenRect,
-            clientProvider = { client() },
-            onOpenSettings = {
-                startActivity(
-                    Intent(this, SettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        when {
+            // 분할 화면 AI 챗이 보이면 그쪽으로 바로 보낸다
+            ChatActivity.visible -> {
+                existing?.close(resetSession = false)
+                session.attach(img) { png.get() }
+            }
+            // 떠 있는 카드가 있으면 같은 카드(같은 자리, 같은 대화)에 붙인다
+            existing != null -> {
+                session.attach(img) { png.get() }
+                existing.reveal()
+            }
+            // 아무것도 없으면 새 대화로 새 카드를 띄운다
+            else -> {
+                session.reset()
+                session.attach(img) { png.get() }
+                val p = FloatingPanel(
+                    ctx = this,
+                    session = session,
+                    selection = screenRect,
+                    onRecapture = { requestCapture(RECAPTURE_DELAY_MS) },
+                    onOpenSettings = {
+                        startActivity(
+                            Intent(this, SettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    },
+                    onOpenDocked = { ChatActivity.open(this) },
+                    onClosed = { panel = null },
                 )
-            },
-            onRecapture = { requestCapture(RECAPTURE_DELAY_MS) },
-            onClosed = { panel = null },
-        )
-        panel = p
-        p.show()
+                panel = p
+                p.show()
+            }
+        }
     }
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()

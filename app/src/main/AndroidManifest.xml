@@ -26,6 +26,24 @@
                 android:resource="@xml/shortcuts" />
         </activity>
 
+        <!-- AI 챗: 분할 화면으로 Anki 옆에 띄워 두는 대화 화면. 앱 서랍/작업 표시줄에서 끌어 분할 화면에 놓을 수 있게 아이콘을 따로 둔다. -->
+        <activity
+            android:name=".ChatActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/chat_name"
+            android:launchMode="singleTask"
+            android:resizeableActivity="true"
+            android:taskAffinity="com.ggumtak.pentastic.chat"
+            android:theme="@style/AppTheme"
+            android:windowSoftInputMode="adjustResize|stateHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <activity
             android:name=".SettingsActivity"
             android:exported="true"

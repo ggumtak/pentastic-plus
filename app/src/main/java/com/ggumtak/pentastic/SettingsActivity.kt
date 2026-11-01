@@ -106,6 +106,14 @@ class SettingsActivity : Activity() {
         col.addView(group)
         col.addView(body("바뀐 모델은 다음 캡처부터 적용됩니다."))
 
+        // AI 챗 (분할 화면)
+        col.addView(section("AI 챗 (분할 화면)"))
+        col.addView(body("Anki 옆에 대화 화면을 띄워 두는 방식입니다. AI 챗이 화면에 보이는 동안 캡처하면 떠 있는 카드 대신 AI 챗으로 바로 들어갑니다. 카드의 ⧉ 버튼을 누르면 지금 대화를 그대로 AI 챗으로 옮깁니다.\n\n여는 방법:\n・ 앱 서랍이나 작업 표시줄의 '펜스틱 챗' 아이콘을 화면 옆쪽으로 끌어다 놓기\n・ 펜스틱 아이콘 길게 누르기 → 펜스틱 챗\n・ 한 번에 열기: 엣지 패널에서 '앱 페어'로 Anki + 펜스틱 챗을 묶어 두면 한 번 눌러 둘 다 분할 화면으로 열립니다."))
+        col.addView(button("AI 챗 열기") {
+            finish()
+            ChatActivity.open(this)
+        })
+
         // 답변 방식 (프롬프트)
         col.addView(section("답변 방식 (프롬프트)"))
         col.addView(body("Claude에게 매번 함께 보내는 지시문입니다. 원하는 대로 고쳐 쓰고 [저장]을 누르세요. 다음 캡처부터 적용됩니다.\n예: '예문은 항상 2개씩', 'JLPT 급수도 알려 줘', '더 짧게'"))

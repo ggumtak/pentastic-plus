@@ -10,4 +10,14 @@
             android:targetClass="com.ggumtak.pentastic.SettingsActivity"
             android:targetPackage="com.ggumtak.pentastic" />
     </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutId="chat"
+        android:shortcutShortLabel="@string/chat_name">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetClass="com.ggumtak.pentastic.ChatActivity"
+            android:targetPackage="com.ggumtak.pentastic" />
+    </shortcut>
 </shortcuts>
