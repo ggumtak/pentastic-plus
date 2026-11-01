@@ -67,6 +67,22 @@ class ChatSession private constructor(private val app: Context) {
         private set
 
     private var tutor: ClaudeTutor? = null
+    private var tutorSubject: String? = null
+
+    val subject: Subject get() = prefs.subject
+
+    /** 과목을 바꾼다. 과목마다 지시문이 달라서 대화는 새로 시작하고, 붙여 둔 캡처는 남긴다. */
+    fun switchSubject(id: String) {
+        if (busy || id == prefs.subjectId) return
+        prefs.subjectId = id
+        DebugLog.add("과목 변경: ${prefs.subject.name}")
+        generation++
+        tutor = null
+        entries.clear()
+        notice = null
+        noticeIsError = false
+        changed()
+    }
     private var generation = 0
 
     val isEmpty get() = entries.isEmpty() && pendingImage == null
@@ -90,7 +106,7 @@ class ChatSession private constructor(private val app: Context) {
         noticeIsError = false
         notice = null
         changed()
-        if (prefs.autoAsk) send(ClaudeTutor.Q_GRAMMAR, "해석·문법")
+        if (prefs.autoAsk) prefs.subject.buttons.first().let { (label, q) -> send(q, label) }
     }
 
     /** '보낼 이미지'를 뺀다 (✕). */
@@ -129,7 +145,13 @@ class ChatSession private constructor(private val app: Context) {
             changed()
             return
         }
-        val t = tutor ?: ClaudeTutor(client, prefs.model, prefs.systemPrompt).also { tutor = it }
+        val subj = prefs.subject
+        // 설정 화면 등에서 과목이 바뀌었으면 새 지시문으로 새로 시작
+        if (tutor != null && tutorSubject != subj.id) tutor = null
+        val t = tutor ?: ClaudeTutor(client, prefs.model, prefs.promptFor(subj)).also {
+            tutor = it
+            tutorSubject = subj.id
+        }
 
         val image = pendingImage
         // 이미지를 함께 보내는 질문이면 대화 안에 그 이미지를 보여준다

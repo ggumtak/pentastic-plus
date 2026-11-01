@@ -78,6 +78,10 @@ class ChatView(
     val input: EditText
     private val sendBtn: TextView
     private val chips = mutableListOf<TextView>()
+    private val chipRow: LinearLayout
+    private val subjectRow: LinearLayout
+    private val subjectButton: TextView
+    private var shownSubject: String? = null
     private var renderedCount = 0
 
     private val listener: () -> Unit = { render() }
@@ -120,12 +124,18 @@ class ChatView(
             gravity = Gravity.CENTER_VERTICAL
             minimumHeight = dp(40)
         }
-        header.addView(TextView(ctx).apply {
-            text = if (mode == Mode.DOCKED) "AI 챗" else "질문"
-            textSize = if (mode == Mode.DOCKED) 17f else 15f
-            setTypeface(typeface, Typeface.BOLD)
-            setTextColor(c.text)
-        })
+        if (mode == Mode.DOCKED) {
+            header.addView(TextView(ctx).apply {
+                text = "AI 챗"
+                textSize = 17f
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(c.text)
+                setPadding(0, 0, dp(10), 0)
+            })
+        }
+        // 과목 고르기 (누르면 아래에 과목 목록이 펼쳐진다)
+        subjectButton = pillButton("", accent = false) { toggleSubjects() }
+        header.addView(subjectButton, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)))
         header.addView(View(ctx), LayoutParams(0, 1, 1f))
         header.addView(pill(if (prefs.model == ClaudeTutor.MODEL_SONNET) "Sonnet" else "Haiku"))
         header.addView(pillButton("＋ 캡처", accent = true) { actions.recapture() },
@@ -140,6 +150,25 @@ class ChatView(
         if (mode == Mode.CARD) header.addView(iconButton("✕") { actions.close() })
         addView(header)
         dragHandles += header
+
+        subjectRow = LinearLayout(ctx).apply {
+            orientation = HORIZONTAL
+            visibility = View.GONE
+        }
+        Subjects.all.forEach { subj ->
+            subjectRow.addView(chip(subj.name, primary = false) {
+                subjectRow.visibility = View.GONE
+                session.switchSubject(subj.id)
+            }.apply { tag = subj.id }, LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginEnd = dp(8) })
+        }
+        addView(HorizontalScrollView(ctx).apply {
+            isHorizontalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            addView(subjectRow)
+        }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            .apply { topMargin = dp(8) })
 
         caption = TextView(ctx).apply {
             textSize = 13f
@@ -225,19 +254,8 @@ class ChatView(
         addView(attachRow, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             .apply { topMargin = dp(12) })
 
-        // 빠른 질문 버튼
-        val chipRow = LinearLayout(ctx).apply { orientation = HORIZONTAL }
-        listOf(
-            "해석·문법" to ClaudeTutor.Q_GRAMMAR,
-            "한자 예시" to ClaudeTutor.Q_KANJI,
-            "단어 뜻" to ClaudeTutor.Q_WORDS,
-        ).forEachIndexed { i, (label, q) ->
-            val chip = chip(label, primary = i == 0) { session.send(q, label) }
-            chips += chip
-            chipRow.addView(chip, LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { marginEnd = dp(8) })
-        }
+        // 빠른 질문 버튼 (과목마다 다르다. render()에서 채운다)
+        chipRow = LinearLayout(ctx).apply { orientation = HORIZONTAL }
         addView(HorizontalScrollView(ctx).apply {
             isHorizontalScrollBarEnabled = false
             overScrollMode = View.OVER_SCROLL_NEVER
@@ -319,7 +337,37 @@ class ChatView(
 
     // ------------------------------------------------------------------ 그리기
 
+    private fun toggleSubjects() {
+        subjectRow.visibility = if (subjectRow.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+    }
+
+    /** 과목이 바뀌었으면 과목 이름과 빠른 질문 버튼을 다시 만든다. */
+    private fun syncSubject() {
+        val subj = session.subject
+        if (shownSubject == subj.id) return
+        shownSubject = subj.id
+        subjectButton.text = "${subj.name} ▾"
+        for (i in 0 until subjectRow.childCount) {
+            val v = subjectRow.getChildAt(i) as TextView
+            val selected = v.tag == subj.id
+            v.setTextColor(if (selected) c.onAccentSoft else c.text)
+            (v.background as? RippleDrawable)?.getDrawable(0)?.let { d ->
+                (d as? GradientDrawable)?.setColor(if (selected) c.accentSoft else c.soft)
+            }
+        }
+        chips.clear()
+        chipRow.removeAllViews()
+        subj.buttons.forEachIndexed { i, (label, q) ->
+            val chip = chip(label, primary = i == 0) { session.send(q, label) }
+            chips += chip
+            chipRow.addView(chip, LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginEnd = dp(8) })
+        }
+    }
+
     private fun render() {
+        syncSubject()
         val attached = session.attachedPreview
         if (attached != null) {
             if (attachImage.tag !== attached) {

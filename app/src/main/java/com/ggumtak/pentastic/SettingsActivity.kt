@@ -26,6 +26,7 @@ class SettingsActivity : Activity() {
     private lateinit var a11yStatus: TextView
     private lateinit var keyStatus: TextView
     private lateinit var promptStatus: TextView
+    private lateinit var editSubject: Subject
     private lateinit var updateStatus: TextView
     private var latest: Updater.Latest? = null
 
@@ -34,6 +35,7 @@ class SettingsActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
+        editSubject = prefs.subject
 
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -124,12 +126,21 @@ class SettingsActivity : Activity() {
         })
 
         // 답변 방식 (프롬프트)
-        col.addView(section("답변 방식 (프롬프트)"))
-        col.addView(body("Claude에게 매번 함께 보내는 지시문입니다. 원하는 대로 고쳐 쓰고 [저장]을 누르세요. 다음 캡처부터 적용됩니다.\n예: '예문은 항상 2개씩', 'JLPT 급수도 알려 줘', '더 짧게'"))
+        col.addView(section("과목별 답변 방식 (프롬프트)"))
+        col.addView(body("과목마다 Claude에게 함께 보내는 지시문입니다. 과목을 고르고 고쳐 쓴 뒤 [저장]을 누르세요. 다음 질문부터 적용됩니다.\n예: '예문은 항상 2개씩', 'JLPT 급수도 알려 줘', '더 짧게'\n과목 자체는 카드나 AI 챗 위쪽의 과목 이름을 눌러 바꿉니다."))
+        val subjectGroup = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
+        Subjects.all.forEachIndexed { i, subj ->
+            subjectGroup.addView(RadioButton(this).apply {
+                id = 100 + i
+                text = subj.name
+                setPadding(0, 0, dp(12), 0)
+            })
+        }
+        col.addView(subjectGroup)
         promptStatus = body("")
         col.addView(promptStatus)
         val promptInput = EditText(this).apply {
-            setText(prefs.systemPrompt)
+            setText(prefs.promptFor(editSubject))
             textSize = 14f
             minLines = 6
             maxLines = 16
@@ -139,15 +150,21 @@ class SettingsActivity : Activity() {
         }
         col.addView(promptInput, matchWrap())
         val promptButtons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        subjectGroup.check(100 + Subjects.all.indexOf(editSubject))
+        subjectGroup.setOnCheckedChangeListener { _, checkedId ->
+            editSubject = Subjects.all[checkedId - 100]
+            promptInput.setText(prefs.promptFor(editSubject))
+            refresh()
+        }
         promptButtons.addView(button("저장") {
-            prefs.systemPrompt = promptInput.text.toString()
-            promptInput.setText(prefs.systemPrompt)
+            prefs.setPromptFor(editSubject, promptInput.text.toString())
+            promptInput.setText(prefs.promptFor(editSubject))
             toast("저장했습니다. 다음 캡처부터 적용됩니다.")
             refresh()
         })
         promptButtons.addView(button("기본값으로 되돌리기") {
-            prefs.systemPrompt = ""
-            promptInput.setText(prefs.systemPrompt)
+            prefs.setPromptFor(editSubject, "")
+            promptInput.setText(prefs.promptFor(editSubject))
             toast("기본 프롬프트로 되돌렸습니다.")
             refresh()
         })
@@ -156,7 +173,7 @@ class SettingsActivity : Activity() {
         // 빠르게 보기
         col.addView(section("빠르게 보기 (선택)"))
         col.addView(Switch(this).apply {
-            text = "드래그하자마자 '해석·문법'을 바로 물어보기"
+            text = "드래그하자마자 첫 번째 버튼(일본어는 '해석·문법')을 바로 물어보기"
             textSize = 15f
             isChecked = prefs.autoAsk
             setOnCheckedChangeListener { _, on -> prefs.autoAsk = on }
@@ -214,7 +231,7 @@ class SettingsActivity : Activity() {
             else -> "상태: 꺼짐 — 아래 버튼으로 켜 주세요."
         }
         if (::promptStatus.isInitialized) {
-            promptStatus.text = if (prefs.isCustomPrompt) "상태: 직접 고친 프롬프트 사용 중" else "상태: 기본 프롬프트"
+            promptStatus.text = "${editSubject.name}: " + if (prefs.isCustomPrompt(editSubject)) "직접 고친 프롬프트 사용 중" else "기본 프롬프트"
         }
         val k = prefs.apiKey
         keyStatus.text = if (k.isBlank()) "상태: 키 없음"

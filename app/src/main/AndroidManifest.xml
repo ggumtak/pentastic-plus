@@ -38,7 +38,7 @@
             android:launchMode="singleTask"
             android:resizeableActivity="true"
             android:taskAffinity="com.ggumtak.pentastic.chat"
-            android:theme="@style/AppTheme"
+            android:theme="@style/ChatTheme"
             android:windowSoftInputMode="adjustResize|stateHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

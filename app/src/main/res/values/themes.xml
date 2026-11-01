@@ -2,6 +2,12 @@
 <resources>
     <style name="AppTheme" parent="@android:style/Theme.DeviceDefault.DayNight" />
 
+    <!-- AI 챗: 화면 위 제목줄 없이 (머리줄에 이미 'AI 챗'이 있다) -->
+    <style name="ChatTheme" parent="@android:style/Theme.DeviceDefault.DayNight">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+    </style>
+
     <style name="AskTheme" parent="@android:style/Theme.DeviceDefault.DayNight">
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>
