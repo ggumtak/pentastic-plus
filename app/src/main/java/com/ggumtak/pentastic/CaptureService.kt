@@ -226,19 +226,19 @@ class CaptureService : AccessibilityService() {
             ChatActivity.visible -> {
                 DebugLog.add("→ AI 챗에 붙임")
                 existing?.close(resetSession = false)
-                session.attach(img) { png.get() }
+                session.attach(img, { png.get() })
             }
             // 떠 있는 카드가 있으면 같은 카드(같은 자리, 같은 대화)에 붙인다
             existing != null -> {
                 DebugLog.add("→ 떠 있는 카드에 붙임")
-                session.attach(img) { png.get() }
+                session.attach(img, { png.get() })
                 existing.reveal()
             }
             // 아무것도 없으면 새 대화로 새 카드를 띄운다
             else -> {
                 DebugLog.add("→ 새 카드")
                 session.reset()
-                session.attach(img) { png.get() }
+                session.attach(img, { png.get() })
                 val p = FloatingPanel(
                     ctx = this,
                     session = session,
