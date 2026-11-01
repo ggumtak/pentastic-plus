@@ -91,7 +91,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Build release APK
-        run: ./gradlew --no-daemon assembleRelease
+        run: ./gradlew --no-daemon --refresh-dependencies assembleRelease
 
       - name: Check signature
         run: |
