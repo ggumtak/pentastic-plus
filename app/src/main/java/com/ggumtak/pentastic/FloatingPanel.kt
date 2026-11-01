@@ -100,7 +100,7 @@ class FloatingPanel(
     private var tutor: ClaudeTutor? = null
     private var busy = false
     private var closed = false
-    private var focusable = false
+    private var imeMode = false
     private var yBeforeIme: Int? = null
 
     private fun dp(v: Int) = (v * density).roundToInt()
@@ -137,7 +137,7 @@ class FloatingPanel(
 
         window = KeyCatchingFrame(ctx).apply {
             setPadding(shadow, shadow, shadow, shadow)
-            onBack = { if (focusable) setFocusable(false) else close() }
+            onBack = { if (imeMode) setImeMode(false) else close() }
         }
 
         card = LinearLayout(ctx).apply {
@@ -283,7 +283,7 @@ class FloatingPanel(
             imeOptions = EditorInfo.IME_ACTION_SEND
             setPadding(0, dp(10), 0, dp(10))
             setOnTouchListener { _, e ->
-                if (e.actionMasked == MotionEvent.ACTION_UP && !focusable) setFocusable(true)
+                if (e.actionMasked == MotionEvent.ACTION_UP && !imeMode) setImeMode(true)
                 false
             }
             setOnEditorActionListener { _, actionId, _ ->
@@ -447,9 +447,9 @@ class FloatingPanel(
 
     // ------------------------------------------------------------------ 키보드
 
-    private fun setFocusable(on: Boolean) {
-        if (closed || focusable == on) return
-        focusable = on
+    private fun setImeMode(on: Boolean) {
+        if (closed || imeMode == on) return
+        imeMode = on
         lp.flags = if (on) lp.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
         else lp.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
         if (on) {
@@ -487,7 +487,7 @@ class FloatingPanel(
         val q = input.text.toString().trim()
         if (q.isEmpty()) return
         input.setText("")
-        setFocusable(false)
+        setImeMode(false)
         send(q, q)
     }
 
