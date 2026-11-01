@@ -116,8 +116,10 @@ jobs:
           if [ "${KEY_IS_NEW:-0}" = "1" ]; then
             NOTE="서명 키가 새로 정해진 빌드입니다. 이번 한 번만 기존 앱을 삭제하고 설치하세요. 다음 버전부터는 덮어쓰기 설치됩니다."
           fi
+          # 브라우저 다운로드 폴더에서 예전 파일과 헷갈리지 않게 번호가 붙은 파일도 함께 올린다
+          cp pentastic.apk "pentastic-${GITHUB_RUN_NUMBER}.apk"
           gh release delete latest --yes --cleanup-tag || true
-          gh release create latest pentastic.apk \
+          gh release create latest pentastic.apk "pentastic-${GITHUB_RUN_NUMBER}.apk" \
             --target "$GITHUB_SHA" \
             --title "펜스틱 최신 빌드 #${GITHUB_RUN_NUMBER}" \
             --notes "${NOTE}

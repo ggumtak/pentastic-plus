@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 앱 안에서 새 버전을 받아 설치 (설정 > 앱 업데이트) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:allowBackup="false"
@@ -49,6 +51,10 @@
             android:exported="true"
             android:label="@string/settings_title"
             android:taskAffinity="com.ggumtak.pentastic.settings" />
+
+        <receiver
+            android:name=".InstallResultReceiver"
+            android:exported="false" />
 
         <service
             android:name=".CaptureService"

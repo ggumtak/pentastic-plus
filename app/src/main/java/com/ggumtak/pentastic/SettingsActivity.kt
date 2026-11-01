@@ -26,6 +26,8 @@ class SettingsActivity : Activity() {
     private lateinit var a11yStatus: TextView
     private lateinit var keyStatus: TextView
     private lateinit var promptStatus: TextView
+    private lateinit var updateStatus: TextView
+    private var latest: Updater.Latest? = null
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
@@ -44,6 +46,13 @@ class SettingsActivity : Activity() {
             setTypeface(typeface, Typeface.BOLD)
         })
         col.addView(body("S펜 버튼을 길게 눌러 화면을 멈추고, 펜으로 드래그한 부분을 Claude에게 바로 질문합니다. 답은 보던 화면 위에 작은 카드로 뜹니다. 아래 4단계를 한 번만 하면 됩니다."))
+
+        // 앱 정보 · 업데이트
+        col.addView(section("앱 버전 · 업데이트"))
+        col.addView(body("설치된 버전: #${Updater.installedBuild(this)}  ·  서명 지문: ${Updater.installedFingerprint(this)}"))
+        updateStatus = body("")
+        col.addView(updateStatus)
+        col.addView(button("업데이트 확인") { checkUpdate() })
 
         // 1. 접근성
         col.addView(section("1. 화면 캡처 권한 켜기"))
@@ -210,6 +219,37 @@ class SettingsActivity : Activity() {
         val k = prefs.apiKey
         keyStatus.text = if (k.isBlank()) "상태: 키 없음"
         else "상태: 저장됨 (…${k.takeLast(4)})"
+    }
+
+    private fun checkUpdate() {
+        val l = latest
+        val mine = Updater.installedBuild(this)
+        if (l != null && l.build > mine) {
+            // 두 번째 누름: 설치
+            if (!packageManager.canRequestPackageInstalls()) {
+                updateStatus.text = "펜스틱이 앱을 설치할 수 있도록 다음 화면에서 '이 출처 허용'을 켠 뒤, 돌아와서 다시 눌러 주세요."
+                startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+                return
+            }
+            if (l.fingerprint != null && l.fingerprint != Updater.installedFingerprint(this)) {
+                updateStatus.text = "새 버전의 서명이 지금 설치된 앱과 다릅니다 (${l.fingerprint}). 이 경우만 펜스틱을 삭제한 뒤 브라우저로 받아 설치해야 합니다."
+                return
+            }
+            updateStatus.text = "받는 중… 0%"
+            Updater.downloadAndInstall(this, l,
+                progress = { updateStatus.text = if (it < 100) "받는 중… $it%" else "설치 화면을 여는 중…" },
+                onError = { updateStatus.text = it })
+            return
+        }
+        updateStatus.text = "확인 중…"
+        Updater.check { found, err ->
+            latest = found
+            updateStatus.text = when {
+                found == null -> err ?: "확인 실패"
+                found.build > mine -> "새 버전 #${found.build}이 있습니다. [업데이트 확인]을 한 번 더 누르면 설치합니다."
+                else -> "최신 버전입니다 (#$mine)."
+            }
+        }
     }
 
     private fun isA11yEnabledInSettings(): Boolean {
