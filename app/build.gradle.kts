@@ -17,6 +17,8 @@ android {
         targetSdk = 35
         versionCode = buildNumber
         versionName = "1.0.$buildNumber"
+        // 갤럭시 탭 S7+ 등 64비트 ARM 기기용 필기 인식 라이브러리만 넣어 용량을 줄인다
+        ndk { abiFilters += "arm64-v8a" }
     }
 
     // 서명 키는 저장소에 넣지 않는다. CI(.github/workflows/build.yml)가 한 번 만든 고정 키를 넘겨준다.
