@@ -68,4 +68,6 @@ kotlin {
 
 dependencies {
     implementation("com.anthropic:anthropic-java:3.3.0")
+    // 한자 손글씨 인식 (기기 안에서 동작, 일본어 모델은 처음 한 번 내려받음)
+    implementation("com.google.mlkit:digital-ink-recognition:18.1.0")
 }

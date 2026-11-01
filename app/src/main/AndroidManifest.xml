@@ -46,6 +46,17 @@
             </intent-filter>
         </activity>
 
+        <!-- 한자 연습장: 큰 쓰기 칸 + AI 챗 -->
+        <activity
+            android:name=".PracticeActivity"
+            android:exported="true"
+            android:label="@string/practice_name"
+            android:launchMode="singleTask"
+            android:resizeableActivity="true"
+            android:taskAffinity="com.ggumtak.pentastic.practice"
+            android:theme="@style/ChatTheme"
+            android:windowSoftInputMode="adjustResize|stateHidden" />
+
         <activity
             android:name=".SettingsActivity"
             android:exported="true"

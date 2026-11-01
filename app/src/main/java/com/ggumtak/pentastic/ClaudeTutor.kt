@@ -216,5 +216,9 @@ class ClaudeTutor(
         const val Q_GRAMMAR = "이 문장을 자연스럽게 해석하고, 왜 그런 뜻이 되는지 문법을 설명해 줘."
         const val Q_KANJI = "여기 나온 한자의 읽기(음독·훈독)와 자주 쓰는 단어 예시를 알려 줘."
         const val Q_WORDS = "나온 단어들의 읽기와 뜻을 정리해 줘."
+
+        fun radicalQuestion(kanji: String) =
+            "「$kanji」 한자의 부수, 구성 요소(각 부분이 뜻과 소리 중 무엇을 나타내는지), 총 획수, 음독·훈독, 뜻, 자주 쓰는 단어 2~3개, 모양이 비슷해서 헷갈리는 한자를 알려 줘."
+        const val Q_RADICAL = "여기 나온 한자의 부수와 구성 요소(각 부분이 뜻과 소리 중 무엇을 나타내는지), 획수를 알려 줘."
     }
 }

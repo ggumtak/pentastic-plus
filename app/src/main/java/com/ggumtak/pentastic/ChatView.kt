@@ -58,6 +58,8 @@ class ChatView(
         fun inputTouched() {}
         /** CARD: 질문을 보낸 뒤 키보드/포커스 정리 */
         fun inputDone() {}
+        /** 한자 연습장 열기 */
+        fun openPractice() {}
     }
 
     private val density = resources.displayMetrics.density
@@ -77,6 +79,10 @@ class ChatView(
     private val statusRow: LinearLayout
     val input: EditText
     private val sendBtn: TextView
+    private val inkPanel: LinearLayout
+    private val ink: InkView
+    private val candRow: LinearLayout
+    private val inkStatus: TextView
     private val chips = mutableListOf<TextView>()
     private val chipRow: LinearLayout
     private val subjectRow: LinearLayout
@@ -143,6 +149,8 @@ class ChatView(
         header.addView(modelButton, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)))
         header.addView(pillButton("＋ 캡처", accent = true) { actions.recapture() },
             LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)).apply { marginStart = dp(8) })
+        header.addView(pillButton("연습장", accent = false) { actions.openPractice() },
+            LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)).apply { marginStart = dp(6) })
         if (mode == Mode.CARD) {
             header.addView(iconButton("⧉") { actions.openDocked() })
         } else {
@@ -282,6 +290,45 @@ class ChatView(
         }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             .apply { topMargin = dp(10) })
 
+        // 손글씨 입력 (✍): 한자를 쓰면 후보가 뜨고, 고르면 입력칸에 들어간다
+        inkPanel = LinearLayout(ctx).apply {
+            orientation = VERTICAL
+            visibility = View.GONE
+        }
+        ink = InkView(ctx, lineColor = c.stroke, inkColor = c.strong, guideColor = c.stroke)
+        inkPanel.addView(ink, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(if (mode == Mode.DOCKED) 240 else 180)))
+        inkStatus = TextView(ctx).apply {
+            textSize = 12.5f
+            setTextColor(c.muted)
+            setPadding(dp(2), dp(6), 0, 0)
+        }
+        inkPanel.addView(inkStatus)
+        candRow = LinearLayout(ctx).apply { orientation = HORIZONTAL }
+        inkPanel.addView(HorizontalScrollView(ctx).apply {
+            isHorizontalScrollBarEnabled = false
+            isHorizontalFadingEdgeEnabled = true
+            setFadingEdgeLength(dp(24))
+            addView(candRow)
+        }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) })
+        val inkActions = LinearLayout(ctx).apply { orientation = HORIZONTAL }
+        inkActions.addView(chip("획 취소", primary = false) { ink.undo() }, LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(8) })
+        inkActions.addView(chip("지우기", primary = false) { ink.clear() }, LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(8) })
+        inkActions.addView(chip("부수·구성 묻기", primary = true) { askRadicals() }, LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(8) })
+        inkActions.addView(chip("닫기", primary = false) { toggleInk(false) }, LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        inkPanel.addView(HorizontalScrollView(ctx).apply {
+            isHorizontalScrollBarEnabled = false
+            isHorizontalFadingEdgeEnabled = true
+            setFadingEdgeLength(dp(24))
+            addView(inkActions)
+        }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
+        addView(inkPanel, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            .apply { topMargin = dp(12) })
+        ink.onStrokesChanged = { recognizeInk() }
+
         // 직접 질문 입력줄
         val inputRow = LinearLayout(ctx).apply {
             orientation = HORIZONTAL
@@ -311,6 +358,15 @@ class ChatView(
                 } else false
             }
         }
+        inputRow.addView(TextView(ctx).apply {
+            text = "✍"
+            textSize = 18f
+            gravity = Gravity.CENTER
+            setTextColor(c.accent)
+            background = RippleDrawable(ColorStateList.valueOf(c.ripple), null,
+                GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.WHITE) })
+            setOnClickListener { toggleInk(inkPanel.visibility != View.VISIBLE) }
+        }, LayoutParams(dp(36), dp(36)).apply { marginEnd = dp(6) })
         inputRow.addView(input, LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         sendBtn = TextView(ctx).apply {
             text = "↑"
@@ -355,6 +411,54 @@ class ChatView(
     }
 
     // ------------------------------------------------------------------ 그리기
+
+    private fun toggleInk(show: Boolean) {
+        inkPanel.visibility = if (show) View.VISIBLE else View.GONE
+        if (!show) return
+        inkStatus.text = "한자를 쓰면 아래에 후보가 나옵니다. 고르면 입력칸에 들어갑니다."
+        Handwriting.prepare { err ->
+            if (err != null) inkStatus.text = err
+        }
+    }
+
+    private fun recognizeInk() {
+        if (ink.isEmpty) {
+            candRow.removeAllViews()
+            return
+        }
+        Handwriting.prepare { err ->
+            if (err != null) {
+                inkStatus.text = err
+                return@prepare
+            }
+            Handwriting.recognize(ink.strokeData, ink.width.toFloat(), ink.height.toFloat()) { cands ->
+                candRow.removeAllViews()
+                if (cands.isEmpty()) inkStatus.text = "인식하지 못했습니다. 조금 더 크게 또는 또박또박 써 보세요."
+                cands.forEach { cand ->
+                    candRow.addView(chip(cand, primary = false) {
+                        input.append(cand)
+                        ink.clear()
+                        inkStatus.text = "입력칸: ${input.text}  ·  더 쓰거나 [부수·구성 묻기]"
+                    }.apply { textSize = 22f; setTypeface(Typeface.DEFAULT, Typeface.NORMAL); textLocale = java.util.Locale.JAPAN },
+                        LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(6) })
+                }
+            }
+        }
+    }
+
+    /** 입력칸의 한자(비어 있으면 가장 그럴듯한 후보)에 대해 부수·구성을 묻는다. */
+    private fun askRadicals() {
+        var text = input.text.toString().trim()
+        if (text.isEmpty() && candRow.childCount > 0) text = (candRow.getChildAt(0) as TextView).text.toString()
+        if (text.isEmpty()) {
+            inkStatus.text = "먼저 한자를 쓰고 후보를 골라 주세요."
+            return
+        }
+        input.setText("")
+        ink.clear()
+        actions.inputDone()
+        session.send(ClaudeTutor.radicalQuestion(text), "부수·구성: $text")
+    }
 
     private fun toggleSubjects() {
         subjectRow.visibility = if (subjectRow.visibility == View.VISIBLE) View.GONE else View.VISIBLE

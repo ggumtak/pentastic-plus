@@ -93,6 +93,10 @@ class FloatingPanel(
                     close(resetSession = false)
                     onOpenDocked()
                 }
+                override fun openPractice() {
+                    close(resetSession = false)
+                    PracticeActivity.open(ctx)
+                }
                 override fun inputTouched() {
                     if (!imeMode) setImeMode(true)
                 }

@@ -32,6 +32,8 @@ class ChatActivity : Activity() {
                 startActivity(Intent(this@ChatActivity, SettingsActivity::class.java)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }
+
+            override fun openPractice() = PracticeActivity.open(this@ChatActivity)
         })
         // 이 화면 위에서 S펜 버튼을 눌러도 다시 캡처
         val frame = FloatingPanel.PanelFrame(this).apply {
@@ -47,19 +49,24 @@ class ChatActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
-        visible = true
+        dockedVisible = true
     }
 
     override fun onStop() {
-        visible = false
+        dockedVisible = false
         super.onStop()
     }
 
     companion object {
-        /** 화면에 보이는 동안 true. 이때 캡처하면 카드 대신 이 화면으로 보낸다. */
         @Volatile
-        var visible = false
-            private set
+        private var dockedVisible = false
+
+        /** 한자 연습장처럼 AI 챗을 품은 다른 화면이 보이는 동안 true */
+        @Volatile
+        var visibleExtra = false
+
+        /** AI 챗이 화면에 보이는 동안 true. 이때 캡처하면 카드 대신 이 화면으로 보낸다. */
+        val visible: Boolean get() = dockedVisible || visibleExtra
 
         /** 분할 화면(옆자리)으로 연다. 지원하지 않는 상태면 일반 창으로 열린다. */
         fun open(ctx: android.content.Context) {

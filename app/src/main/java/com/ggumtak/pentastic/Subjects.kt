@@ -29,6 +29,7 @@ object Subjects {
             "해석·문법" to ClaudeTutor.Q_GRAMMAR,
             "한자 예시" to ClaudeTutor.Q_KANJI,
             "단어 뜻" to ClaudeTutor.Q_WORDS,
+            "부수·구성" to ClaudeTutor.Q_RADICAL,
         ),
     )
 

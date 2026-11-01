@@ -20,4 +20,14 @@
             android:targetClass="com.ggumtak.pentastic.ChatActivity"
             android:targetPackage="com.ggumtak.pentastic" />
     </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutId="practice"
+        android:shortcutShortLabel="@string/practice_name">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetClass="com.ggumtak.pentastic.PracticeActivity"
+            android:targetPackage="com.ggumtak.pentastic" />
+    </shortcut>
 </shortcuts>

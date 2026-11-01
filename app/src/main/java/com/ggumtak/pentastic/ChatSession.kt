@@ -109,7 +109,7 @@ class ChatSession private constructor(private val app: Context) {
     private fun changed() = listeners.toList().forEach { it() }
 
     /** 새 캡처를 대화에 붙인다. 설정에서 자동 요청을 켰으면 바로 '해석·문법'을 묻는다. */
-    fun attach(preview: Bitmap, image: () -> ByteArray) {
+    fun attach(preview: Bitmap, image: () -> ByteArray, allowAutoAsk: Boolean = true) {
         DebugLog.add("대화에 이미지 붙음 (${preview.width}x${preview.height}, 화면 ${listeners.size}개)")
         pendingImage = image
         pendingPreview = preview
@@ -117,7 +117,7 @@ class ChatSession private constructor(private val app: Context) {
         noticeIsError = false
         notice = null
         changed()
-        if (prefs.autoAsk) prefs.subject.buttons.first().let { (label, q) -> send(q, label) }
+        if (allowAutoAsk && prefs.autoAsk) prefs.subject.buttons.first().let { (label, q) -> send(q, label) }
     }
 
     /** '보낼 이미지'를 뺀다 (✕). */
