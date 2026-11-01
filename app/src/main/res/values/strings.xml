@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">펜스틱</string>
+    <string name="settings_title">펜스틱 설정</string>
+    <string name="a11y_label">펜스틱 화면 캡처</string>
+    <string name="a11y_desc">펜 버튼을 길게 누르면 지금 화면을 멈추고, 펜으로 드래그한 부분만 잘라 Claude에게 질문합니다. 화면 내용은 드래그해서 고른 부분만, 질문을 보낼 때에만 Anthropic API로 전송됩니다. 다른 앱의 내용을 읽거나 저장하지 않습니다.</string>
+</resources>

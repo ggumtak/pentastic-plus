@@ -1,0 +1,62 @@
+name: Build APK
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-apk
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # 선택: 저장소 Secrets에 고정 서명 키가 있으면 그 키로 서명 (덮어쓰기 업데이트 가능)
+      - name: Prepare signing key (optional)
+        env:
+          SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$SIGNING_KEYSTORE_B64" ]; then
+            echo "$SIGNING_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "SIGNING_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build release APK
+        env:
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon assembleRelease
+
+      - name: Rename APK
+        run: cp app/build/outputs/apk/release/app-release.apk pentastic.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pentastic-apk
+          path: pentastic.apk
+
+      # 태블릿에서 항상 같은 주소(releases/latest/download/pentastic.apk)로 받을 수 있게 올린다.
+      - name: Publish to "latest" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest pentastic.apk \
+            --target "$GITHUB_SHA" \
+            --title "펜스틱 최신 빌드 #${GITHUB_RUN_NUMBER}" \
+            --notes "태블릿에서 pentastic.apk를 눌러 내려받아 설치하세요. (브랜치: ${GITHUB_REF_NAME}, 커밋: ${GITHUB_SHA::7})" \
+            --latest
