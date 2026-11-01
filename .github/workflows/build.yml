@@ -15,7 +15,6 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  KEY_DIR: ${{ github.workspace }}/../pentastic-signing
   KEY_CACHE: pentastic-signing-v1
 
 jobs:
@@ -25,7 +24,7 @@ jobs:
     steps:
       - uses: actions/cache/restore@v4
         with:
-          path: ${{ env.KEY_DIR }}
+          path: ~/.pentastic-signing
           key: ${{ env.KEY_CACHE }}
 
   build:
@@ -47,12 +46,13 @@ jobs:
         id: key
         uses: actions/cache/restore@v4
         with:
-          path: ${{ env.KEY_DIR }}
+          path: ~/.pentastic-signing
           key: ${{ env.KEY_CACHE }}
 
       - name: Create signing key (first run only)
         if: steps.key.outputs.cache-hit != 'true'
         run: |
+          KEY_DIR="$HOME/.pentastic-signing"
           mkdir -p "$KEY_DIR"
           openssl rand -hex 24 > "$KEY_DIR/pass.txt"
           P=$(cat "$KEY_DIR/pass.txt")
@@ -65,11 +65,22 @@ jobs:
         if: steps.key.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
-          path: ${{ env.KEY_DIR }}
+          path: ~/.pentastic-signing
           key: ${{ env.KEY_CACHE }}
+
+      # 저장이 조용히 실패하면 다음 빌드가 다른 키로 서명된다. 확인 못 하면 빌드를 멈춘다.
+      - name: Verify signing key is stored
+        if: steps.key.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.pentastic-signing
+          key: ${{ env.KEY_CACHE }}
+          lookup-only: true
+          fail-on-cache-miss: true
 
       - name: Use signing key
         run: |
+          KEY_DIR="$HOME/.pentastic-signing"
           P=$(cat "$KEY_DIR/pass.txt")
           echo "::add-mask::$P"
           {
