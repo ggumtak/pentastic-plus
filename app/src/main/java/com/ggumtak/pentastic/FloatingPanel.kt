@@ -499,7 +499,7 @@ class FloatingPanel(
             caption.setTextColor(c.error)
             return
         }
-        val t = tutor ?: ClaudeTutor(client, prefs.model).also { tutor = it }
+        val t = tutor ?: ClaudeTutor(client, prefs.model, prefs.systemPrompt).also { tutor = it }
 
         caption.visibility = View.GONE
         answerScroll.visibility = View.VISIBLE

@@ -18,4 +18,16 @@ class Prefs(context: Context) {
     var autoAsk: Boolean
         get() = sp.getBoolean("auto_ask", false)
         set(v) = sp.edit().putBoolean("auto_ask", v).apply()
+
+    /** Claude에게 주는 지시문(시스템 프롬프트). 비어 있으면 기본값을 쓴다. */
+    var systemPrompt: String
+        get() = sp.getString("system_prompt", null)?.takeIf { it.isNotBlank() } ?: ClaudeTutor.SYSTEM_PROMPT
+        set(v) {
+            val t = v.trim()
+            if (t.isEmpty() || t == ClaudeTutor.SYSTEM_PROMPT) sp.edit().remove("system_prompt").apply()
+            else sp.edit().putString("system_prompt", t).apply()
+        }
+
+    val isCustomPrompt: Boolean
+        get() = !sp.getString("system_prompt", null).isNullOrBlank()
 }

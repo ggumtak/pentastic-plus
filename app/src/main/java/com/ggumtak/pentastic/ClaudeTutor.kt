@@ -30,6 +30,7 @@ import java.util.Base64
 class ClaudeTutor(
     private val client: AnthropicClient,
     private val model: String,
+    private val systemPrompt: String = SYSTEM_PROMPT,
 ) {
     /** 지금까지 주고받은 메시지 (첫 user 메시지에 이미지가 들어 있다). */
     private val history = mutableListOf<MessageParam>()
@@ -66,7 +67,7 @@ class ClaudeTutor(
         val builder = MessageCreateParams.builder()
             .model(model)
             .maxTokens(4096L)
-            .system(SYSTEM_PROMPT)
+            .system(systemPrompt.ifBlank { SYSTEM_PROMPT })
             .messages(history + userMessage)
             .outputConfig(OutputConfig.builder().effort(OutputConfig.Effort.LOW).build())
         // Haiku는 생각(thinking)을 꺼서 첫 글자가 빨리 나오게 한다.

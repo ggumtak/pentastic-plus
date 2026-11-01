@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.text.InputType
+import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
@@ -24,6 +25,7 @@ class SettingsActivity : Activity() {
     private lateinit var prefs: Prefs
     private lateinit var a11yStatus: TextView
     private lateinit var keyStatus: TextView
+    private lateinit var promptStatus: TextView
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
@@ -104,6 +106,36 @@ class SettingsActivity : Activity() {
         col.addView(group)
         col.addView(body("바뀐 모델은 다음 캡처부터 적용됩니다."))
 
+        // 답변 방식 (프롬프트)
+        col.addView(section("답변 방식 (프롬프트)"))
+        col.addView(body("Claude에게 매번 함께 보내는 지시문입니다. 원하는 대로 고쳐 쓰고 [저장]을 누르세요. 다음 캡처부터 적용됩니다.\n예: '예문은 항상 2개씩', 'JLPT 급수도 알려 줘', '더 짧게'"))
+        promptStatus = body("")
+        col.addView(promptStatus)
+        val promptInput = EditText(this).apply {
+            setText(prefs.systemPrompt)
+            textSize = 14f
+            minLines = 6
+            maxLines = 16
+            gravity = Gravity.TOP or Gravity.START
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            isVerticalScrollBarEnabled = true
+        }
+        col.addView(promptInput, matchWrap())
+        val promptButtons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        promptButtons.addView(button("저장") {
+            prefs.systemPrompt = promptInput.text.toString()
+            promptInput.setText(prefs.systemPrompt)
+            toast("저장했습니다. 다음 캡처부터 적용됩니다.")
+            refresh()
+        })
+        promptButtons.addView(button("기본값으로 되돌리기") {
+            prefs.systemPrompt = ""
+            promptInput.setText(prefs.systemPrompt)
+            toast("기본 프롬프트로 되돌렸습니다.")
+            refresh()
+        })
+        col.addView(promptButtons)
+
         // 빠르게 보기
         col.addView(section("빠르게 보기 (선택)"))
         col.addView(Switch(this).apply {
@@ -142,6 +174,9 @@ class SettingsActivity : Activity() {
             CaptureService.instance != null -> "상태: 켜짐 ✓"
             isA11yEnabledInSettings() -> "상태: 켜져 있지만 동작하지 않음 — 접근성에서 껐다가 다시 켜 주세요."
             else -> "상태: 꺼짐 — 아래 버튼으로 켜 주세요."
+        }
+        if (::promptStatus.isInitialized) {
+            promptStatus.text = if (prefs.isCustomPrompt) "상태: 직접 고친 프롬프트 사용 중" else "상태: 기본 프롬프트"
         }
         val k = prefs.apiKey
         keyStatus.text = if (k.isBlank()) "상태: 키 없음"
