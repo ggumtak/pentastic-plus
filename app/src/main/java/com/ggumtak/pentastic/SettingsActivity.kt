@@ -97,25 +97,29 @@ class SettingsActivity : Activity() {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://console.anthropic.com/settings/keys")))
         })
 
-        // 3. 모델
-        col.addView(section("3. 모델"))
-        val group = RadioGroup(this)
-        val haiku = RadioButton(this).apply {
-            id = 1
-            text = "Haiku 5.5 — 빠르고 저렴 (기본, 추천)"
+        // 3. 과목별 모델
+        col.addView(section("3. 과목별 모델"))
+        col.addView(body("Haiku 5.5: 빠르고 저렴 (질문당 약 1원)\nSonnet 5.5: 더 정확, 비용 약 20배 (질문당 약 15~25원)\n카드나 AI 챗 위쪽의 'Haiku ⇄' 버튼으로도 바로 바꿀 수 있고, 바꿔도 대화는 이어집니다."))
+        Subjects.all.forEach { subj ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            row.addView(TextView(this).apply {
+                text = subj.name
+                textSize = 15f
+                setTypeface(typeface, Typeface.BOLD)
+            }, LinearLayout.LayoutParams(dp(72), ViewGroup.LayoutParams.WRAP_CONTENT))
+            val g = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
+            g.addView(RadioButton(this).apply { id = 1; text = "Haiku"; setPadding(0, 0, dp(16), 0) })
+            g.addView(RadioButton(this).apply { id = 2; text = "Sonnet" })
+            g.check(if (prefs.modelFor(subj) == ClaudeTutor.MODEL_SONNET) 2 else 1)
+            g.setOnCheckedChangeListener { _, checkedId ->
+                prefs.setModelFor(subj, if (checkedId == 2) ClaudeTutor.MODEL_SONNET else ClaudeTutor.MODEL_HAIKU)
+            }
+            row.addView(g)
+            col.addView(row)
         }
-        val sonnet = RadioButton(this).apply {
-            id = 2
-            text = "Sonnet 5.5 — 더 정확, 비용 약 20배"
-        }
-        group.addView(haiku)
-        group.addView(sonnet)
-        group.check(if (prefs.model == ClaudeTutor.MODEL_SONNET) 2 else 1)
-        group.setOnCheckedChangeListener { _, checkedId ->
-            prefs.model = if (checkedId == 2) ClaudeTutor.MODEL_SONNET else ClaudeTutor.MODEL_HAIKU
-        }
-        col.addView(group)
-        col.addView(body("바뀐 모델은 다음 캡처부터 적용됩니다."))
 
         // AI 챗 (분할 화면)
         col.addView(section("AI 챗 (분할 화면)"))

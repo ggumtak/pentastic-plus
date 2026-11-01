@@ -29,11 +29,27 @@ import java.util.Base64
  */
 class ClaudeTutor(
     private val client: AnthropicClient,
-    private val model: String,
+    val model: String,
     private val systemPrompt: String = SYSTEM_PROMPT,
+    /** 다른 모델에서 이어받은 대화 (질문 메시지, 답변 글). */
+    seed: List<Pair<MessageParam, String>> = emptyList(),
 ) {
-    /** 지금까지 주고받은 메시지 (첫 user 메시지에 이미지가 들어 있다). */
+    /** 지금까지 주고받은 메시지 (질문에는 캡처 이미지가 들어 있다). 이 모델이 만든 답변은 원본 그대로. */
     private val history = mutableListOf<MessageParam>()
+
+    /** 모델을 바꿀 때 넘겨줄 대화: 질문 원본 + 답변 글만 (모델 내부 생각 기록은 빼서 어느 모델에도 유효) */
+    private val transcript = mutableListOf<Pair<MessageParam, String>>()
+
+    init {
+        seed.forEach { (user, answer) ->
+            history += user
+            history += MessageParam.ofAssistant(answer)
+            transcript += user to answer
+        }
+    }
+
+    /** 같은 대화를 다른 모델로 이어 간다. */
+    fun withModel(newModel: String): ClaudeTutor = ClaudeTutor(client, newModel, systemPrompt, transcript.toList())
 
     @Volatile
     var cancelled = false
@@ -119,6 +135,7 @@ class ClaudeTutor(
         }
         history += userMessage
         history += message.toParam()
+        transcript += userMessage to answer
         return answer
     }
 

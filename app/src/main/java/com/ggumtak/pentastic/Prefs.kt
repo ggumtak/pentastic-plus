@@ -10,9 +10,10 @@ class Prefs(context: Context) {
         get() = sp.getString("api_key", "") ?: ""
         set(v) = sp.edit().putString("api_key", v.trim()).apply()
 
-    var model: String
-        get() = sp.getString("model", ClaudeTutor.MODEL_HAIKU) ?: ClaudeTutor.MODEL_HAIKU
-        set(v) = sp.edit().putString("model", v).apply()
+    /** 과목별 모델 (역사는 기본 Sonnet, 나머지는 Haiku) */
+    fun modelFor(s: Subject): String = sp.getString("model_${s.id}", null) ?: s.defaultModel
+
+    fun setModelFor(s: Subject, model: String) = sp.edit().putString("model_${s.id}", model).apply()
 
     /** 드래그가 끝나자마자 '해석·문법'을 자동으로 물어볼지 (기본: 꺼짐 — 누르기 전엔 전송 안 함) */
     var autoAsk: Boolean

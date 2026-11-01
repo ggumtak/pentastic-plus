@@ -7,6 +7,8 @@ class Subject(
     val defaultPrompt: String,
     /** (버튼 이름, 실제로 보내는 질문). 첫 번째가 '자동으로 바로 물어보기'에 쓰인다. */
     val buttons: List<Pair<String, String>>,
+    /** 기본 모델. 사실 확인이 중요한 과목은 Sonnet. */
+    val defaultModel: String = ClaudeTutor.MODEL_HAIKU,
 )
 
 object Subjects {
@@ -68,6 +70,7 @@ object Subjects {
             "흐름·인과" to "앞뒤 사건과 연결해서 배경 → 전개 → 결과·의의 흐름으로 설명해 줘.",
             "헷갈리는 것" to "시험에서 자주 헷갈리는 비슷한 사건·용어와 비교해서 차이를 정리해 줘.",
         ),
+        defaultModel = ClaudeTutor.MODEL_SONNET,
     )
 
     val KOREAN = Subject(

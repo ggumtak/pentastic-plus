@@ -81,6 +81,7 @@ class ChatView(
     private val chipRow: LinearLayout
     private val subjectRow: LinearLayout
     private val subjectButton: TextView
+    private val modelButton: TextView
     private var shownSubject: String? = null
     private var renderedCount = 0
 
@@ -137,7 +138,9 @@ class ChatView(
         subjectButton = pillButton("", accent = false) { toggleSubjects() }
         header.addView(subjectButton, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)))
         header.addView(View(ctx), LayoutParams(0, 1, 1f))
-        header.addView(pill(if (prefs.model == ClaudeTutor.MODEL_SONNET) "Sonnet" else "Haiku"))
+        // 모델 (누르면 이 과목의 모델이 Haiku ↔ Sonnet으로 바뀐다. 대화는 이어짐)
+        modelButton = pillButton("", accent = false) { session.toggleModel() }.apply { textSize = 12f }
+        header.addView(modelButton, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)))
         header.addView(pillButton("＋ 캡처", accent = true) { actions.recapture() },
             LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)).apply { marginStart = dp(8) })
         if (mode == Mode.CARD) {
@@ -148,7 +151,19 @@ class ChatView(
         }
         header.addView(iconButton("⚙") { actions.openSettings() })
         if (mode == Mode.CARD) header.addView(iconButton("✕") { actions.close() })
-        addView(header)
+        if (mode == Mode.DOCKED) {
+            // 좁은 분할 화면에서는 머리줄을 옆으로 밀어서 모든 버튼을 누를 수 있게 한다
+            addView(HorizontalScrollView(ctx).apply {
+                isFillViewport = true
+                isHorizontalScrollBarEnabled = false
+                isHorizontalFadingEdgeEnabled = true
+                setFadingEdgeLength(dp(24))
+                overScrollMode = View.OVER_SCROLL_NEVER
+                addView(header)
+            }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        } else {
+            addView(header)
+        }
         dragHandles += header
 
         subjectRow = LinearLayout(ctx).apply {
@@ -165,6 +180,8 @@ class ChatView(
         }
         addView(HorizontalScrollView(ctx).apply {
             isHorizontalScrollBarEnabled = false
+            isHorizontalFadingEdgeEnabled = true
+            setFadingEdgeLength(dp(24))
             overScrollMode = View.OVER_SCROLL_NEVER
             addView(subjectRow)
         }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -239,7 +256,7 @@ class ChatView(
             gravity = Gravity.CENTER_VERTICAL
         }
         attachTop.addView(TextView(ctx).apply {
-            text = "보낼 이미지 · 아래 버튼을 누르거나 직접 물어보세요"
+            text = "보낼 이미지"
             textSize = 12.5f
             setTextColor(c.accent)
             setTypeface(typeface, Typeface.BOLD)
@@ -258,6 +275,8 @@ class ChatView(
         chipRow = LinearLayout(ctx).apply { orientation = HORIZONTAL }
         addView(HorizontalScrollView(ctx).apply {
             isHorizontalScrollBarEnabled = false
+            isHorizontalFadingEdgeEnabled = true
+            setFadingEdgeLength(dp(24))
             overScrollMode = View.OVER_SCROLL_NEVER
             addView(chipRow)
         }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -368,6 +387,7 @@ class ChatView(
 
     private fun render() {
         syncSubject()
+        modelButton.text = if (session.model == ClaudeTutor.MODEL_SONNET) "Sonnet ⇄" else "Haiku ⇄"
         val attached = session.attachedPreview
         if (attached != null) {
             if (attachImage.tag !== attached) {

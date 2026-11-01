@@ -71,6 +71,17 @@ class ChatSession private constructor(private val app: Context) {
 
     val subject: Subject get() = prefs.subject
 
+    val model: String get() = prefs.modelFor(prefs.subject)
+
+    /** 지금 과목의 모델을 Haiku ↔ Sonnet으로 바꾼다. 대화는 이어진다. */
+    fun toggleModel() {
+        val subj = prefs.subject
+        val next = if (prefs.modelFor(subj) == ClaudeTutor.MODEL_SONNET) ClaudeTutor.MODEL_HAIKU else ClaudeTutor.MODEL_SONNET
+        prefs.setModelFor(subj, next)
+        DebugLog.add("모델 변경: ${subj.name} → $next")
+        changed()
+    }
+
     /** 과목을 바꾼다. 과목마다 지시문이 달라서 대화는 새로 시작하고, 붙여 둔 캡처는 남긴다. */
     fun switchSubject(id: String) {
         if (busy || id == prefs.subjectId) return
@@ -146,9 +157,12 @@ class ChatSession private constructor(private val app: Context) {
             return
         }
         val subj = prefs.subject
+        val model = prefs.modelFor(subj)
         // 설정 화면 등에서 과목이 바뀌었으면 새 지시문으로 새로 시작
         if (tutor != null && tutorSubject != subj.id) tutor = null
-        val t = tutor ?: ClaudeTutor(client, prefs.model, prefs.promptFor(subj)).also {
+        // 모델만 바뀌었으면 대화를 이어서 새 모델로
+        tutor?.let { if (it.model != model) tutor = it.withModel(model) }
+        val t = tutor ?: ClaudeTutor(client, model, prefs.promptFor(subj)).also {
             tutor = it
             tutorSubject = subj.id
         }
