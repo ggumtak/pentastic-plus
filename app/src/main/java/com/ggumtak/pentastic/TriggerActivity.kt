@@ -12,6 +12,7 @@ class TriggerActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val service = CaptureService.instance
+        DebugLog.add("펜스틱 실행 (접근성 서비스 ${if (service == null) "꺼짐" else "켜짐"})")
         if (service == null) {
             // 아직 접근성 권한이 없으면 설정 화면으로 안내
             startActivity(

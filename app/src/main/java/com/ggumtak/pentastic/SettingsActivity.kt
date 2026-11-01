@@ -167,6 +167,27 @@ class SettingsActivity : Activity() {
             }
         })
 
+        // 진단 기록
+        col.addView(section("진단 기록"))
+        col.addView(body("캡처나 질문이 안 될 때, 아래 기록을 복사해서 보내 주시면 어느 단계에서 멈췄는지 알 수 있습니다. 화면 내용과 API 키는 기록하지 않습니다."))
+        val logView = TextView(this).apply {
+            text = DebugLog.dump()
+            textSize = 12f
+            typeface = Typeface.MONOSPACE
+            setTextIsSelectable(true)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            setBackgroundColor(0x14888888)
+        }
+        col.addView(logView, matchWrap())
+        val logButtons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        logButtons.addView(button("새로고침") { logView.text = DebugLog.dump() })
+        logButtons.addView(button("복사") {
+            val cm = getSystemService(android.content.ClipboardManager::class.java)
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("펜스틱 진단 기록", DebugLog.dump()))
+            toast("복사했습니다. 채팅에 붙여넣어 보내 주세요.")
+        })
+        col.addView(logButtons)
+
         setContentView(ScrollView(this).apply { addView(col) })
         refresh()
     }

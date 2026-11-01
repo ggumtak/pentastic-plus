@@ -68,9 +68,16 @@ class CaptureService : AccessibilityService() {
     fun requestCapture(delayMs: Long) {
         // 이전 캡처가 어떤 이유로든 끝나지 않고 멈춰 있으면(3초 이상) 정리하고 새로 시작한다.
         val now = System.currentTimeMillis()
-        if (pending && now - pendingSince < 3000) return
+        DebugLog.add("캡처 요청 (대기 ${delayMs}ms, 카드=${panel != null}, AI챗 보임=${ChatActivity.visible})")
+        if (pending && now - pendingSince < 3000) {
+            DebugLog.add("→ 무시: 이전 캡처 진행 중")
+            return
+        }
         if (selector != null) {
-            if (now - selectorSince < 1500) return
+            if (now - selectorSince < 1500) {
+                DebugLog.add("→ 무시: 선택 화면이 이미 떠 있음")
+                return
+            }
             removeSelector()
         }
         pendingSince = now
@@ -93,6 +100,7 @@ class CaptureService : AccessibilityService() {
                     } finally {
                         hw.close()
                     }
+                    DebugLog.add("스크린샷 성공 (${shot?.width}x${shot?.height})")
                     if (shot == null) {
                         panel?.reveal()
                         toast("화면 캡처에 실패했습니다.")
@@ -102,6 +110,7 @@ class CaptureService : AccessibilityService() {
                 }
 
                 override fun onFailure(errorCode: Int) {
+                    DebugLog.add("스크린샷 실패 코드 $errorCode (재시도함=$retried)")
                     // 캡처는 1초에 한 번만 허용된다. 너무 빨리 다시 누른 경우 한 번 자동 재시도.
                     if (errorCode == ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT && !retried) {
                         retried = true
@@ -114,6 +123,7 @@ class CaptureService : AccessibilityService() {
                 }
             })
         } catch (e: Exception) {
+            DebugLog.add("스크린샷 예외: ${e.javaClass.simpleName} ${e.message}")
             pending = false
             panel?.reveal()
             toast("화면 캡처를 시작하지 못했습니다: ${e.message}")
@@ -149,7 +159,8 @@ class CaptureService : AccessibilityService() {
             this,
             shot,
             onSelected = { bitmapRect, screenRect -> onSelected(shot, bitmapRect, screenRect) },
-            onCancel = {
+            onCancel = { reason ->
+                DebugLog.add("선택 취소: $reason")
                 removeSelector()
                 shot.recycle()
                 panel?.reveal()
@@ -168,6 +179,7 @@ class CaptureService : AccessibilityService() {
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
         }
         wm.addView(view, lp)
+        DebugLog.add("선택 화면 표시")
         selector = view
         selectorSince = System.currentTimeMillis()
         view.requestFocus()
@@ -186,6 +198,7 @@ class CaptureService : AccessibilityService() {
     }
 
     private fun onSelected(shot: Bitmap, r: Rect, screenRect: Rect) {
+        DebugLog.add("선택 완료 ${r.width()}x${r.height()}")
         removeSelector()
         val crop = Bitmap.createBitmap(shot, r.left, r.top, r.width(), r.height())
         shot.recycle()
@@ -211,16 +224,19 @@ class CaptureService : AccessibilityService() {
         when {
             // 분할 화면 AI 챗이 보이면 그쪽으로 바로 보낸다
             ChatActivity.visible -> {
+                DebugLog.add("→ AI 챗에 붙임")
                 existing?.close(resetSession = false)
                 session.attach(img) { png.get() }
             }
             // 떠 있는 카드가 있으면 같은 카드(같은 자리, 같은 대화)에 붙인다
             existing != null -> {
+                DebugLog.add("→ 떠 있는 카드에 붙임")
                 session.attach(img) { png.get() }
                 existing.reveal()
             }
             // 아무것도 없으면 새 대화로 새 카드를 띄운다
             else -> {
+                DebugLog.add("→ 새 카드")
                 session.reset()
                 session.attach(img) { png.get() }
                 val p = FloatingPanel(

@@ -26,7 +26,7 @@ class SelectionView(
     context: Context,
     private val shot: Bitmap,
     private val onSelected: (bitmapRect: Rect, screenRect: Rect) -> Unit,
-    private val onCancel: () -> Unit,
+    private val onCancel: (reason: String) -> Unit,
 ) : View(context) {
 
     private val density = resources.displayMetrics.density
@@ -118,8 +118,16 @@ class SelectionView(
                 finish()
             }
             MotionEvent.ACTION_CANCEL -> {
-                dragging = false
-                invalidate()
+                // S펜 버튼을 누른 채 끌면 시스템이 중간에 터치를 취소할 수 있다.
+                // 이미 충분히 끌었으면 그 영역으로 확정하고, 아니면 다시 끌 수 있게 둔다.
+                DebugLog.add("선택 중 터치 취소됨 (시스템)")
+                val r = selection()
+                if (dragging && r.width() >= 16f * density && r.height() >= 16f * density) {
+                    finish()
+                } else {
+                    dragging = false
+                    invalidate()
+                }
             }
         }
         return true
@@ -130,7 +138,7 @@ class SelectionView(
         val minSize = 16f * density
         if (abs(r.width()) < minSize || abs(r.height()) < minSize) {
             finished = true
-            onCancel()
+            onCancel("짧게 탭함")
             return
         }
         // 화면 좌표 -> 캡처 이미지 좌표
@@ -151,7 +159,7 @@ class SelectionView(
         if (event.keyCode == KeyEvent.KEYCODE_BACK) {
             if (event.action == KeyEvent.ACTION_UP && !finished) {
                 finished = true
-                onCancel()
+                onCancel("뒤로 가기")
             }
             return true
         }

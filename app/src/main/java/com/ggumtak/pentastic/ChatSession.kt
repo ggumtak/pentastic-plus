@@ -83,6 +83,7 @@ class ChatSession private constructor(private val app: Context) {
 
     /** 새 캡처를 대화에 붙인다. 설정에서 자동 요청을 켰으면 바로 '해석·문법'을 묻는다. */
     fun attach(preview: Bitmap, image: () -> ByteArray) {
+        DebugLog.add("대화에 이미지 붙음 (${preview.width}x${preview.height}, 화면 ${listeners.size}개)")
         pendingImage = image
         pendingPreview = preview
         inFlight = null
@@ -117,7 +118,10 @@ class ChatSession private constructor(private val app: Context) {
     }
 
     fun send(question: String, label: String) {
-        if (busy) return
+        if (busy) {
+            DebugLog.add("질문 무시: 이전 답변 진행 중")
+            return
+        }
         val client = ApiClient.get(app)
         if (client == null) {
             notice = "API 키가 없어요. ⚙ 설정에서 키를 넣어 주세요."
@@ -131,6 +135,7 @@ class ChatSession private constructor(private val app: Context) {
         // 이미지를 함께 보내는 질문이면 대화 안에 그 이미지를 보여준다
         val entryThumb = if (image != null) pendingPreview else null
         inFlight = image
+        DebugLog.add("질문 전송 (이미지 포함=${image != null}, 대화 ${entries.size + 1}번째)")
         val entry = Entry(if (label.length > 60) label.take(60) + "…" else label, entryThumb)
         entries += entry
         notice = null
@@ -159,6 +164,7 @@ class ChatSession private constructor(private val app: Context) {
                     inFlight = null
                     busy = false
                     waiting = false
+                    DebugLog.add("답변 완료 (${entry.raw.length}자)")
                     changed()
                 }
             } catch (e: ClaudeTutor.TutorException) {
@@ -171,6 +177,7 @@ class ChatSession private constructor(private val app: Context) {
 
     private fun fail(gen: Int, entry: Entry, msg: String) {
         if (gen != generation) return
+        DebugLog.add("답변 오류: $msg")
         entry.error = msg
         inFlight = null
         busy = false
