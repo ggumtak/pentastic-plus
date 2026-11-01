@@ -69,7 +69,8 @@ class ChatView(
     /** 끌어서 카드를 옮길 때 잡는 부분 (CARD 모드) */
     val dragHandles = mutableListOf<View>()
 
-    private val thumb: ImageView
+    private val attachRow: LinearLayout
+    private val attachImage: ImageView
     private val caption: TextView
     private val answerScroll: ScrollView
     private val answer: TextView
@@ -113,32 +114,18 @@ class ChatView(
             dragHandles += grip
         }
 
-        // 머리줄: 미리보기 / 모델 / [＋ 캡처] / [분할 또는 새 대화] / 설정 / (닫기)
+        // 머리줄: 제목 / 모델 / [＋ 캡처] / [분할 또는 새 대화] / 설정 / (닫기)
         val header = LinearLayout(ctx).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(40)
         }
-        thumb = ImageView(ctx).apply {
-            adjustViewBounds = true
-            maxHeight = dp(40)
-            maxWidth = dp(140)
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            background = GradientDrawable().apply {
-                cornerRadius = dpf(8f)
-                setColor(c.soft)
-            }
-            clipToOutline = true
-        }
-        header.addView(thumb, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)))
-        if (mode == Mode.DOCKED) {
-            header.addView(TextView(ctx).apply {
-                text = "AI 챗"
-                textSize = 17f
-                setTypeface(typeface, Typeface.BOLD)
-                setTextColor(c.text)
-                setPadding(dp(10), 0, 0, 0)
-            })
-        }
+        header.addView(TextView(ctx).apply {
+            text = if (mode == Mode.DOCKED) "AI 챗" else "질문"
+            textSize = if (mode == Mode.DOCKED) 17f else 15f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(c.text)
+        })
         header.addView(View(ctx), LayoutParams(0, 1, 1f))
         header.addView(pill(if (prefs.model == ClaudeTutor.MODEL_SONNET) "Sonnet" else "Haiku"))
         header.addView(pillButton("＋ 캡처", accent = true) { actions.recapture() },
@@ -153,27 +140,6 @@ class ChatView(
         if (mode == Mode.CARD) header.addView(iconButton("✕") { actions.close() })
         addView(header)
         dragHandles += header
-        dragHandles += thumb
-
-        // 빠른 질문 버튼
-        val chipRow = LinearLayout(ctx).apply { orientation = HORIZONTAL }
-        listOf(
-            "해석·문법" to ClaudeTutor.Q_GRAMMAR,
-            "한자 예시" to ClaudeTutor.Q_KANJI,
-            "단어 뜻" to ClaudeTutor.Q_WORDS,
-        ).forEachIndexed { i, (label, q) ->
-            val chip = chip(label, primary = i == 0) { session.send(q, label) }
-            chips += chip
-            chipRow.addView(chip, LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { marginEnd = dp(8) })
-        }
-        addView(HorizontalScrollView(ctx).apply {
-            isHorizontalScrollBarEnabled = false
-            overScrollMode = View.OVER_SCROLL_NEVER
-            addView(chipRow)
-        }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            .apply { topMargin = dp(12) })
 
         caption = TextView(ctx).apply {
             textSize = 13f
@@ -219,6 +185,64 @@ class ChatView(
             setPadding(dp(8), 0, 0, 0)
         })
         addView(statusRow, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            .apply { topMargin = dp(10) })
+
+        // 보낼 이미지 (캡처하면 여기에 크게 붙는다. 질문을 보내면 대화 안으로 들어간다)
+        attachImage = ImageView(ctx).apply {
+            adjustViewBounds = true
+            maxHeight = dp(if (mode == Mode.DOCKED) 160 else 110)
+            maxWidth = dp(if (mode == Mode.DOCKED) 520 else 360)
+            scaleType = ImageView.ScaleType.FIT_START
+            background = GradientDrawable().apply {
+                cornerRadius = dpf(10f)
+                setColor(c.soft)
+                setStroke(dp(1), c.stroke)
+            }
+            clipToOutline = true
+            setPadding(dp(2), dp(2), dp(2), dp(2))
+        }
+        attachRow = LinearLayout(ctx).apply {
+            orientation = VERTICAL
+            visibility = View.GONE
+        }
+        val attachTop = LinearLayout(ctx).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        attachTop.addView(TextView(ctx).apply {
+            text = "보낼 이미지 · 아래 버튼을 누르거나 직접 물어보세요"
+            textSize = 12.5f
+            setTextColor(c.accent)
+            setTypeface(typeface, Typeface.BOLD)
+        }, LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        attachTop.addView(iconButton("✕") { session.removeAttachment() }.apply {
+            textSize = 14f
+            layoutParams = LayoutParams(dp(32), dp(32))
+        })
+        attachRow.addView(attachTop)
+        attachRow.addView(attachImage, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            .apply { topMargin = dp(4) })
+        addView(attachRow, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            .apply { topMargin = dp(12) })
+
+        // 빠른 질문 버튼
+        val chipRow = LinearLayout(ctx).apply { orientation = HORIZONTAL }
+        listOf(
+            "해석·문법" to ClaudeTutor.Q_GRAMMAR,
+            "한자 예시" to ClaudeTutor.Q_KANJI,
+            "단어 뜻" to ClaudeTutor.Q_WORDS,
+        ).forEachIndexed { i, (label, q) ->
+            val chip = chip(label, primary = i == 0) { session.send(q, label) }
+            chips += chip
+            chipRow.addView(chip, LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginEnd = dp(8) })
+        }
+        addView(HorizontalScrollView(ctx).apply {
+            isHorizontalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            addView(chipRow)
+        }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             .apply { topMargin = dp(10) })
 
         // 직접 질문 입력줄
@@ -296,12 +320,22 @@ class ChatView(
     // ------------------------------------------------------------------ 그리기
 
     private fun render() {
-        thumb.setImageBitmap(session.latestPreview)
-        thumb.visibility = if (session.latestPreview == null) View.GONE else View.VISIBLE
+        val attached = session.attachedPreview
+        if (attached != null) {
+            if (attachImage.tag !== attached) {
+                attachImage.setImageBitmap(attached)
+                attachImage.tag = attached
+            }
+            attachRow.visibility = View.VISIBLE
+        } else {
+            attachImage.setImageDrawable(null)
+            attachImage.tag = null
+            attachRow.visibility = View.GONE
+        }
 
         val notice = session.notice ?: if (session.isEmpty) emptyHint() else null
         caption.text = notice ?: ""
-        caption.setTextColor(if (session.noticeIsError) c.error else if (session.entries.isEmpty()) c.muted else c.accent)
+        caption.setTextColor(if (session.noticeIsError) c.error else c.muted)
         caption.visibility = if (notice == null) View.GONE else View.VISIBLE
 
         statusRow.visibility = if (session.waiting) View.VISIBLE else View.GONE
@@ -331,13 +365,19 @@ class ChatView(
             }
             lastStart = sb.length
             e.thumb?.let { bmp ->
-                val h = dp(26)
-                val w = (bmp.width * h.toFloat() / bmp.height).roundToInt().coerceIn(dp(16), dp(160))
+                // 대화 안에 캡처 이미지를 보여준다 (높이 최대 72dp, 폭은 답변 칸을 넘지 않게)
+                val maxW = (if (answer.width > 0) answer.width else dp(360)) - dp(8)
+                var h = dp(72)
+                var w = (bmp.width * h.toFloat() / bmp.height).roundToInt()
+                if (w > maxW) {
+                    h = (h * maxW.toFloat() / w).roundToInt()
+                    w = maxW
+                }
                 val d = BitmapDrawable(resources, bmp).apply { setBounds(0, 0, w, h) }
                 val s = sb.length
                 sb.append("￼")
                 sb.setSpan(ImageSpan(d, DynamicDrawableSpan.ALIGN_BOTTOM), s, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                sb.append("  ")
+                sb.append("\n")
             }
             val ls = sb.length
             sb.append(e.label).append("\n")

@@ -42,14 +42,16 @@ class ChatSession private constructor(private val app: Context) {
 
     val entries = mutableListOf<Entry>()
 
-    /** 가장 최근 캡처 미리보기 (머리줄 썸네일) */
-    var latestPreview: Bitmap? = null
-        private set
-
     /** 아직 보내지 않은 캡처. 다음 질문에 함께 보내고, 성공하면 비운다. */
     private var pendingImage: (() -> ByteArray)? = null
     private var pendingPreview: Bitmap? = null
-    private var captureCount = 0
+
+    /** 지금 전송 중인 캡처 (전송 중엔 '보낼 이미지' 칸에서 숨긴다. 실패하면 다시 보인다) */
+    private var inFlight: (() -> ByteArray)? = null
+
+    /** 입력칸 위에 크게 보여줄 '보낼 이미지'. 없으면 null. */
+    val attachedPreview: Bitmap?
+        get() = if (pendingImage != null && pendingImage !== inFlight) pendingPreview else null
 
     var busy = false
         private set
@@ -67,7 +69,7 @@ class ChatSession private constructor(private val app: Context) {
     private var tutor: ClaudeTutor? = null
     private var generation = 0
 
-    val isEmpty get() = entries.isEmpty() && latestPreview == null
+    val isEmpty get() = entries.isEmpty() && pendingImage == null
 
     fun addListener(l: () -> Unit) {
         listeners += l
@@ -83,13 +85,19 @@ class ChatSession private constructor(private val app: Context) {
     fun attach(preview: Bitmap, image: () -> ByteArray) {
         pendingImage = image
         pendingPreview = preview
-        latestPreview = preview
-        captureCount++
+        inFlight = null
         noticeIsError = false
-        notice = if (entries.isEmpty()) "아직 전송 전이에요. 버튼을 누르거나 아래에 직접 물어보세요."
-        else "새 캡처를 붙였어요. 버튼을 누르거나 아래에 물어보세요."
+        notice = null
         changed()
         if (prefs.autoAsk) send(ClaudeTutor.Q_GRAMMAR, "해석·문법")
+    }
+
+    /** '보낼 이미지'를 뺀다 (✕). */
+    fun removeAttachment() {
+        if (busy) return
+        pendingImage = null
+        pendingPreview = null
+        changed()
     }
 
     /** 대화를 비우고 새로 시작한다. 진행 중인 답변은 멈춘다. */
@@ -100,8 +108,7 @@ class ChatSession private constructor(private val app: Context) {
         entries.clear()
         pendingImage = null
         pendingPreview = null
-        latestPreview = null
-        captureCount = 0
+        inFlight = null
         busy = false
         waiting = false
         notice = null
@@ -121,8 +128,9 @@ class ChatSession private constructor(private val app: Context) {
         val t = tutor ?: ClaudeTutor(client, prefs.model, prefs.systemPrompt).also { tutor = it }
 
         val image = pendingImage
-        // 두 번째 캡처부터는 어떤 이미지에 대한 질문인지 답변 안에 작은 그림으로 표시
-        val entryThumb = if (image != null && captureCount > 1) pendingPreview else null
+        // 이미지를 함께 보내는 질문이면 대화 안에 그 이미지를 보여준다
+        val entryThumb = if (image != null) pendingPreview else null
+        inFlight = image
         val entry = Entry(if (label.length > 60) label.take(60) + "…" else label, entryThumb)
         entries += entry
         notice = null
@@ -144,7 +152,11 @@ class ChatSession private constructor(private val app: Context) {
                 main.post {
                     if (gen != generation) return@post
                     // 이미지를 함께 보낸 질문이 성공했으면, 다음 질문부터는 대화 기록에 있는 이미지를 쓴다
-                    if (pendingImage === image) pendingImage = null
+                    if (pendingImage === image) {
+                        pendingImage = null
+                        pendingPreview = null
+                    }
+                    inFlight = null
                     busy = false
                     waiting = false
                     changed()
@@ -160,6 +172,7 @@ class ChatSession private constructor(private val app: Context) {
     private fun fail(gen: Int, entry: Entry, msg: String) {
         if (gen != generation) return
         entry.error = msg
+        inFlight = null
         busy = false
         waiting = false
         changed()
