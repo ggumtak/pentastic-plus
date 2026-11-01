@@ -35,6 +35,8 @@ class CaptureService : AccessibilityService() {
     private var panel: FloatingPanel? = null
     private var pending = false
     private var retried = false
+    private var pendingSince = 0L
+    private var selectorSince = 0L
 
     private var client: AnthropicClient? = null
     private var clientKey: String? = null
@@ -84,7 +86,14 @@ class CaptureService : AccessibilityService() {
     // ------------------------------------------------------------------ 캡처
 
     fun requestCapture(delayMs: Long) {
-        if (selector != null || pending) return
+        // 이전 캡처가 어떤 이유로든 끝나지 않고 멈춰 있으면(3초 이상) 정리하고 새로 시작한다.
+        val now = System.currentTimeMillis()
+        if (pending && now - pendingSince < 3000) return
+        if (selector != null) {
+            if (now - selectorSince < 1500) return
+            removeSelector()
+        }
+        pendingSince = now
         // 떠 있는 카드가 있으면 바로 닫는다 (오버레이라 애니메이션 대기 없이 사라진다)
         panel?.close()
         pending = true
@@ -176,6 +185,7 @@ class CaptureService : AccessibilityService() {
         }
         wm.addView(view, lp)
         selector = view
+        selectorSince = System.currentTimeMillis()
         view.requestFocus()
 
         // 고르는 동안 API 서버 연결을 미리 열어 둔다 (토큰을 쓰지 않는 요청)

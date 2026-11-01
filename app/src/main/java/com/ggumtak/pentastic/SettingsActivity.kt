@@ -48,6 +48,12 @@ class SettingsActivity : Activity() {
         a11yStatus = body("")
         col.addView(a11yStatus)
         col.addView(body("접근성 → 설치된 앱 → '펜스틱 화면 캡처' → 켜기.\n이 권한은 펜 버튼을 눌렀을 때 화면을 캡처하는 데만 씁니다."))
+        col.addView(body("스위치가 회색으로 막혀 있거나 '제한된 설정' 창이 뜨면: 아래 [앱 정보 열기] → 오른쪽 위 ⋮ → '제한된 설정 허용' → 다시 접근성에서 켜기. (스토어 밖에서 설치한 앱에 안드로이드 13이 거는 보호 장치입니다.)"))
+        col.addView(button("앱 정보 열기 (제한된 설정 허용)") {
+            startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+            )
+        })
         col.addView(button("접근성 설정 열기") {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         })
@@ -132,10 +138,19 @@ class SettingsActivity : Activity() {
 
     private fun refresh() {
         if (!::a11yStatus.isInitialized) return
-        a11yStatus.text = if (CaptureService.instance != null) "상태: 켜짐 ✓" else "상태: 꺼짐 — 아래 버튼으로 켜 주세요."
+        a11yStatus.text = when {
+            CaptureService.instance != null -> "상태: 켜짐 ✓"
+            isA11yEnabledInSettings() -> "상태: 켜져 있지만 동작하지 않음 — 접근성에서 껐다가 다시 켜 주세요."
+            else -> "상태: 꺼짐 — 아래 버튼으로 켜 주세요."
+        }
         val k = prefs.apiKey
         keyStatus.text = if (k.isBlank()) "상태: 키 없음"
         else "상태: 저장됨 (…${k.takeLast(4)})"
+    }
+
+    private fun isA11yEnabledInSettings(): Boolean {
+        val enabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
+        return enabled.split(':').any { it.startsWith("$packageName/") }
     }
 
     private fun section(t: String) = TextView(this).apply {
