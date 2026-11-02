@@ -79,7 +79,7 @@ class ChatView(
     private val convo: LinearLayout
 
     /** 질문 하나에 해당하는 화면 조각. 답변이 흘러들어올 때 그 답변 글만 바꾼다. */
-    private class EntryViews(val root: LinearLayout, val answer: TextView) {
+    private class EntryViews(val root: LinearLayout, val answer: TextView, val retry: TextView) {
         var shownLen = -1
         var shownError: String? = null
     }
@@ -385,7 +385,8 @@ class ChatView(
                 },
                 null,
             )
-            setOnClickListener { sendTyped() }
+            // 답변 중에는 ■(멈추기), 아니면 ↑(보내기)
+            setOnClickListener { if (session.busy) session.stop() else sendTyped() }
         }
         inputRow.addView(sendBtn, LayoutParams(dp(36), dp(36)))
         addView(inputRow, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -518,8 +519,8 @@ class ChatView(
             it.isEnabled = !session.busy
             it.alpha = if (session.busy) 0.45f else 1f
         }
-        sendBtn.isEnabled = !session.busy
-        sendBtn.alpha = if (session.busy) 0.45f else 1f
+        sendBtn.text = if (session.busy) "■" else "↑"
+        sendBtn.textSize = if (session.busy) 14f else 18f
 
         val entries = session.entries
         if (entries.isEmpty()) {
@@ -548,6 +549,7 @@ class ChatView(
         // 답변 글 갱신 (바뀐 것만)
         entries.forEachIndexed { i, e ->
             val ev = entryViews[i]
+            ev.retry.visibility = if (e.retryable && i == entries.lastIndex && !session.busy) View.VISIBLE else View.GONE
             if (ev.shownLen == e.raw.length && ev.shownError == e.error) return@forEachIndexed
             ev.shownLen = e.raw.length
             ev.shownError = e.error
@@ -626,7 +628,10 @@ class ChatView(
         }
         root.addView(answer, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             .apply { topMargin = dp(12) })
-        return EntryViews(root, answer)
+        val retry = chip("↻ 다시 시도", primary = true) { session.retryLast() }.apply { visibility = View.GONE }
+        root.addView(retry, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            .apply { topMargin = dp(8) })
+        return EntryViews(root, answer, retry)
     }
 
     private fun emptyHint() = if (mode == Mode.DOCKED)

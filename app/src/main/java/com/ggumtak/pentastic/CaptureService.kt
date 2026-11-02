@@ -35,6 +35,13 @@ class CaptureService : AccessibilityService() {
     private var pending = false
     private var retried = false
     private var pendingSince = 0L
+    private var shotBuffer: android.hardware.HardwareBuffer? = null
+
+    private fun releaseShot(shot: Bitmap) {
+        shot.recycle()
+        shotBuffer?.close()
+        shotBuffer = null
+    }
     private var selectorSince = 0L
 
 
@@ -42,6 +49,8 @@ class CaptureService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         thread(name = "warm-up") { ClaudeTutor.warmUpClasses() }
+        // 필기 인식 모델을 이미 받아 두었다면 미리 열어 둔다 (✍를 누르면 바로 인식)
+        Handwriting.prepareIfDownloaded()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
@@ -94,13 +103,14 @@ class CaptureService : AccessibilityService() {
                 override fun onSuccess(result: ScreenshotResult) {
                     pending = false
                     val hw = result.hardwareBuffer
-                    val shot = try {
-                        Bitmap.wrapHardwareBuffer(hw, result.colorSpace)
-                            ?.copy(Bitmap.Config.ARGB_8888, false)
-                    } finally {
-                        hw.close()
+                    // 화면 전체를 복사하지 않고 그대로 보여준다 (멈춘 화면이 더 빨리 뜬다).
+                    // 복사는 나중에 고른 부분만 한다.
+                    val shot = Bitmap.wrapHardwareBuffer(hw, result.colorSpace)
+                    if (shot == null) hw.close() else {
+                        shotBuffer?.close()
+                        shotBuffer = hw
                     }
-                    DebugLog.add("스크린샷 성공 (${shot?.width}x${shot?.height})")
+                    DebugLog.add("스크린샷 성공 (${shot?.width}x${shot?.height}, 요청 후 ${System.currentTimeMillis() - pendingSince}ms)")
                     if (shot == null) {
                         panel?.reveal()
                         toast("화면 캡처에 실패했습니다.")
@@ -162,7 +172,7 @@ class CaptureService : AccessibilityService() {
             onCancel = { reason ->
                 DebugLog.add("선택 취소: $reason")
                 removeSelector()
-                shot.recycle()
+                releaseShot(shot)
                 panel?.reveal()
             },
         )
@@ -171,7 +181,8 @@ class CaptureService : AccessibilityService() {
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -179,7 +190,9 @@ class CaptureService : AccessibilityService() {
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
         }
         wm.addView(view, lp)
-        DebugLog.add("선택 화면 표시")
+        DebugLog.add("선택 화면 표시 (요청 후 ${System.currentTimeMillis() - pendingSince}ms)")
+        // 캡처가 시작됐다는 걸 손으로 느낄 수 있게 짧은 진동
+        view.post { view.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM) }
         selector = view
         selectorSince = System.currentTimeMillis()
         view.requestFocus()
@@ -200,8 +213,12 @@ class CaptureService : AccessibilityService() {
     private fun onSelected(shot: Bitmap, r: Rect, screenRect: Rect) {
         DebugLog.add("선택 완료 ${r.width()}x${r.height()}")
         removeSelector()
-        val crop = Bitmap.createBitmap(shot, r.left, r.top, r.width(), r.height())
-        shot.recycle()
+        val cut = Bitmap.createBitmap(shot, r.left, r.top, r.width(), r.height())
+        // 하드웨어 이미지는 저장·표시용으로 바로 쓸 수 없어서, 고른 부분만 일반 이미지로 복사
+        val crop = if (cut.config == Bitmap.Config.HARDWARE) {
+            cut.copy(Bitmap.Config.ARGB_8888, false).also { if (it !== cut) cut.recycle() }
+        } else cut
+        if (crop !== shot) releaseShot(shot)
         // Claude는 긴 변 1568px이면 충분히 읽는다. 더 크면 줄여서 전송량과 시간을 아낀다.
         val longest = max(crop.width, crop.height)
         val img = if (longest > MAX_SIDE) {
@@ -211,11 +228,12 @@ class CaptureService : AccessibilityService() {
             ).also { crop.recycle() }
         } else crop
 
-        // PNG 변환은 카드를 띄운 뒤 뒤에서 한다. 질문을 누르는 시점엔 보통 이미 끝나 있다.
+        // 이미지 변환은 카드를 띄운 뒤 뒤에서 한다. 질문을 누르는 시점엔 보통 이미 끝나 있다.
+        // JPEG(품질 90): PNG보다 몇 배 작아서 전송이 빠르고, 글자를 읽는 데는 차이가 없다.
         val png: Future<ByteArray> = worker.submit<ByteArray> {
             ByteArrayOutputStream().use { out ->
-                img.compress(Bitmap.CompressFormat.PNG, 100, out)
-                out.toByteArray()
+                img.compress(Bitmap.CompressFormat.JPEG, 90, out)
+                out.toByteArray().also { DebugLog.add("전송용 이미지 ${it.size / 1024}KB") }
             }
         }
 
@@ -266,7 +284,7 @@ class CaptureService : AccessibilityService() {
             private set
 
         /** 에어 액션으로 실행된 투명 화면이 닫힐 시간 */
-        const val TRIGGER_DELAY_MS = 180L
+        const val TRIGGER_DELAY_MS = 80L
 
         /** 카드의 [캡처] 버튼 / 펜 버튼: 카드가 화면에서 사라질 한 프레임만 기다린다 */
         const val RECAPTURE_DELAY_MS = 120L

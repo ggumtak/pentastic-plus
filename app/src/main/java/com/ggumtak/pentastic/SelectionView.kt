@@ -44,6 +44,7 @@ class SelectionView(
     private var curY = 0f
     private var dragging = false
     private var finished = false
+    private var softCopy: Bitmap? = null
 
     private val dimPaint = Paint().apply { color = Color.argb(110, 0, 0, 0) }
     private val lightDimPaint = Paint().apply { color = Color.argb(40, 0, 0, 0) }
@@ -69,7 +70,11 @@ class SelectionView(
         canvas.save()
         canvas.translate(-loc[0].toFloat(), -loc[1].toFloat())
         canvas.scale(1f / scale, 1f / scale)
-        canvas.drawBitmap(shot, 0f, 0f, null)
+        // 하드웨어 이미지는 하드웨어 가속 화면에서만 그릴 수 있다. 아니면 한 번만 복사해서 쓴다.
+        val bmp = if (shot.config == Bitmap.Config.HARDWARE && !canvas.isHardwareAccelerated) {
+            softCopy ?: shot.copy(Bitmap.Config.ARGB_8888, false).also { softCopy = it }
+        } else shot
+        canvas.drawBitmap(bmp, 0f, 0f, null)
         canvas.restore()
 
         val w = width.toFloat()

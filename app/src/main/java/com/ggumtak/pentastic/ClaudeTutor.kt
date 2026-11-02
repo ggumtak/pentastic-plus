@@ -60,7 +60,13 @@ class ClaudeTutor(
      * @return 최종 답변 텍스트
      * @throws TutorException 사용자에게 보여줄 한국어 메시지를 담은 오류
      */
-    fun ask(image: ByteArray?, imageMediaType: String, question: String, onDelta: (String) -> Unit): String {
+    fun ask(
+        image: ByteArray?,
+        imageMediaType: String,
+        question: String,
+        shouldStop: () -> Boolean = { cancelled },
+        onDelta: (String) -> Unit,
+    ): String {
         val userContent = buildList {
             if (image != null) {
                 add(
@@ -97,7 +103,7 @@ class ClaudeTutor(
             val stream = client.messages().createStreaming(builder.build())
             try {
                 for (raw in stream) {
-                    if (cancelled) return ""
+                    if (cancelled || shouldStop()) return ""
                     val event = accumulator.accumulate(raw)
                     event.contentBlockDelta().flatMap { d -> d.delta().text() }
                         .ifPresent { t -> onDelta(t.text()) }

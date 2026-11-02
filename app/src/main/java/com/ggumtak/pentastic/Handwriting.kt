@@ -54,6 +54,17 @@ object Handwriting {
             }
     }
 
+    /** 모델을 이미 받아 두었으면 인식기를 미리 연다 (새로 내려받지는 않는다). */
+    fun prepareIfDownloaded() {
+        try {
+            val id = DigitalInkRecognitionModelIdentifier.fromLanguageTag("ja") ?: return
+            val m = DigitalInkRecognitionModel.builder(id).build()
+            RemoteModelManager.getInstance().isModelDownloaded(m)
+                .addOnSuccessListener { downloaded -> if (downloaded) prepare { } }
+        } catch (_: Exception) {
+        }
+    }
+
     private fun finish(error: String?) {
         downloading = false
         val list = waiting.toList()

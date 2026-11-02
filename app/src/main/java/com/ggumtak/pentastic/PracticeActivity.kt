@@ -222,7 +222,7 @@ class PracticeActivity : Activity() {
         }
         val want = target.text.toString().trim().ifEmpty { topCandidate ?: "" }
         val (bmp, bytes) = png
-        session.attach(bmp, { bytes }, allowAutoAsk = false)
+        session.attach(bmp, { bytes }, allowAutoAsk = false, mime = "image/png")
         val q = if (want.isNotEmpty())
             "이 이미지는 내가 손으로 쓴 「$want」야. 모양·균형·비율이 자연스러운지, 빠지거나 잘못 붙은 획이 있는지 봐 주고, 부수와 구성도 짧게 알려 줘. 획순은 그림으로 알 수 없으니 이 한자에서 자주 틀리는 획순만 짚어 줘."
         else
