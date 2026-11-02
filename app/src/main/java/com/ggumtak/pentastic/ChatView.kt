@@ -75,7 +75,16 @@ class ChatView(
     private val attachImage: ImageView
     private val caption: TextView
     private val answerScroll: ScrollView
-    private val answer: TextView
+    /** 대화 목록: 질문 말풍선(오른쪽) + 답변(왼쪽 일반 글)을 차례로 쌓는다 */
+    private val convo: LinearLayout
+
+    /** 질문 하나에 해당하는 화면 조각. 답변이 흘러들어올 때 그 답변 글만 바꾼다. */
+    private class EntryViews(val root: LinearLayout, val answer: TextView) {
+        var shownLen = -1
+        var shownError: String? = null
+    }
+
+    private val entryViews = mutableListOf<EntryViews>()
     private val statusRow: LinearLayout
     val input: EditText
     private val sendBtn: TextView
@@ -203,19 +212,13 @@ class ChatView(
         addView(caption, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             .apply { topMargin = dp(8) })
 
-        // 답변 (가독성: 16sp, 넉넉한 줄 간격, 진한 본문색, 굵은 핵심어)
-        answer = TextView(ctx).apply {
-            textSize = if (mode == Mode.DOCKED) 16.5f else 16f
-            setTextColor(c.text)
-            setLineSpacing(dpf(2f), 1.42f)
-            letterSpacing = 0.01f
-            breakStrategy = android.text.Layout.BREAK_STRATEGY_HIGH_QUALITY
-            hyphenationFrequency = android.text.Layout.HYPHENATION_FREQUENCY_NONE
+        // 대화 (질문 말풍선 + 답변)
+        convo = LinearLayout(ctx).apply {
+            orientation = VERTICAL
             setPadding(0, 0, dp(4), dp(4))
-            setTextIsSelectable(mode == Mode.DOCKED)
         }
         answerScroll = (if (mode == Mode.CARD) MaxHeightScrollView(ctx, maxAnswerHeight) else ScrollView(ctx)).apply {
-            addView(answer)
+            addView(convo)
             isVerticalScrollBarEnabled = true
             overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
         }
@@ -520,64 +523,110 @@ class ChatView(
 
         val entries = session.entries
         if (entries.isEmpty()) {
-            answer.text = ""
+            if (entryViews.isNotEmpty()) {
+                convo.removeAllViews()
+                entryViews.clear()
+            }
             answerScroll.visibility = if (mode == Mode.DOCKED) View.VISIBLE else View.GONE
             renderedCount = 0
             return
         }
         answerScroll.visibility = View.VISIBLE
 
-        val sb = SpannableStringBuilder()
-        var lastStart = 0
+        // 대화가 새로 시작됐으면(줄었으면) 다시 만든다
+        if (entryViews.size > entries.size) {
+            convo.removeAllViews()
+            entryViews.clear()
+        }
+        var newView: View? = null
+        while (entryViews.size < entries.size) {
+            val ev = buildEntryViews(entries[entryViews.size], first = entryViews.isEmpty())
+            convo.addView(ev.root)
+            entryViews += ev
+            newView = ev.root
+        }
+        // 답변 글 갱신 (바뀐 것만)
         entries.forEachIndexed { i, e ->
-            if (i > 0) {
-                val s = sb.length
-                sb.append("\n\n")
-                sb.setSpan(AbsoluteSizeSpan(dp(10)), s, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            }
-            lastStart = sb.length
-            e.thumb?.let { bmp ->
-                // 대화 안에 캡처 이미지를 보여준다 (높이 최대 72dp, 폭은 답변 칸을 넘지 않게)
-                val maxW = (if (answer.width > 0) answer.width else dp(360)) - dp(8)
-                var h = dp(72)
-                var w = (bmp.width * h.toFloat() / bmp.height).roundToInt()
-                if (w > maxW) {
-                    h = (h * maxW.toFloat() / w).roundToInt()
-                    w = maxW
-                }
-                val d = BitmapDrawable(resources, bmp).apply { setBounds(0, 0, w, h) }
-                val s = sb.length
-                sb.append("￼")
-                sb.setSpan(ImageSpan(d, DynamicDrawableSpan.ALIGN_BOTTOM), s, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                sb.append("\n")
-            }
-            val ls = sb.length
-            sb.append(e.label).append("\n")
-            sb.setSpan(ForegroundColorSpan(c.accent), ls, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            sb.setSpan(StyleSpan(Typeface.BOLD), ls, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            sb.setSpan(RelativeSizeSpan(0.84f), ls, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            val ev = entryViews[i]
+            if (ev.shownLen == e.raw.length && ev.shownError == e.error) return@forEachIndexed
+            ev.shownLen = e.raw.length
+            ev.shownError = e.error
+            val sb = SpannableStringBuilder()
             renderer.append(sb, e.raw.toString())
             e.error?.let { err ->
-                val s = sb.length
-                if (e.raw.isNotEmpty()) sb.append("\n")
+                val st = sb.length
+                if (sb.isNotEmpty()) sb.append("\n")
                 sb.append(err)
-                sb.setSpan(ForegroundColorSpan(c.error), s, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                sb.setSpan(ForegroundColorSpan(c.error), st, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
+            ev.answer.text = sb
+            ev.answer.visibility = if (sb.isEmpty()) View.GONE else View.VISIBLE
         }
-        answer.text = sb
 
-        // 새 질문이 생겼을 때 한 번만 그 질문 위치로 스크롤 (읽는 중에 자동으로 따라 내려가지 않게)
+        // 새 질문이 생겼을 때 한 번만 그 말풍선 위치로 스크롤 (읽는 중에 자동으로 따라 내려가지 않게)
         if (entries.size != renderedCount) {
-            val newEntry = entries.size > renderedCount && entries.size > 1
+            val scrollTo = if (entries.size > renderedCount && entries.size > 1) newView else null
             renderedCount = entries.size
-            if (newEntry) {
-                val target = lastStart
-                answer.post {
-                    val layout = answer.layout ?: return@post
-                    answerScroll.smoothScrollTo(0, layout.getLineTop(layout.getLineForOffset(target)))
-                }
+            scrollTo?.let { v -> v.post { answerScroll.smoothScrollTo(0, v.top) } }
+        }
+    }
+
+    /** 질문 말풍선(오른쪽, 캡처 이미지 포함) + 답변 글 */
+    private fun buildEntryViews(e: ChatSession.Entry, first: Boolean): EntryViews {
+        val root = LinearLayout(context).apply { orientation = VERTICAL }
+        val maxBubble = ((if (convo.width > 0) convo.width else dp(if (mode == Mode.DOCKED) 420 else 400)) * 0.85f).roundToInt()
+
+        val bubble = LinearLayout(context).apply {
+            orientation = VERTICAL
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            background = GradientDrawable().apply {
+                // 오른쪽 아래 모서리만 덜 둥글게 (말풍선 꼬리 느낌)
+                cornerRadii = floatArrayOf(dpf(18f), dpf(18f), dpf(18f), dpf(18f), dpf(6f), dpf(6f), dpf(18f), dpf(18f))
+                setColor(c.bubble)
             }
         }
+        e.thumb?.let { bmp ->
+            bubble.addView(ImageView(context).apply {
+                setImageBitmap(bmp)
+                adjustViewBounds = true
+                maxHeight = dp(110)
+                maxWidth = maxBubble - dp(28)
+                scaleType = ImageView.ScaleType.FIT_END
+                background = GradientDrawable().apply { cornerRadius = dpf(10f); setColor(Color.WHITE) }
+                clipToOutline = true
+            }, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                gravity = Gravity.END
+                bottomMargin = dp(6)
+            })
+        }
+        bubble.addView(TextView(context).apply {
+            text = e.label
+            textSize = 15f
+            setTextColor(c.text)
+            setLineSpacing(dpf(1f), 1.3f)
+            maxWidth = maxBubble - dp(28)
+            setTextIsSelectable(mode == Mode.DOCKED)
+        }, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { gravity = Gravity.END })
+        root.addView(bubble, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.END
+            topMargin = if (first) 0 else dp(20)
+            marginStart = dp(40)
+        })
+
+        // 답변 (가독성: 16sp, 넉넉한 줄 간격, 진한 본문색, 굵은 핵심어)
+        val answer = TextView(context).apply {
+            textSize = if (mode == Mode.DOCKED) 16.5f else 16f
+            setTextColor(c.text)
+            setLineSpacing(dpf(2f), 1.42f)
+            letterSpacing = 0.01f
+            breakStrategy = android.text.Layout.BREAK_STRATEGY_HIGH_QUALITY
+            hyphenationFrequency = android.text.Layout.HYPHENATION_FREQUENCY_NONE
+            setTextIsSelectable(mode == Mode.DOCKED)
+            visibility = View.GONE
+        }
+        root.addView(answer, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            .apply { topMargin = dp(12) })
+        return EntryViews(root, answer)
     }
 
     private fun emptyHint() = if (mode == Mode.DOCKED)
@@ -657,6 +706,8 @@ class ChatView(
     class Palette(
         val card: Int, val stroke: Int, val text: Int, val strong: Int, val muted: Int, val soft: Int,
         val accent: Int, val accentSoft: Int, val onAccentSoft: Int, val ripple: Int, val error: Int,
+        /** 내가 보낸 질문 말풍선 배경 */
+        val bubble: Int,
     ) {
         companion object {
             fun of(ctx: Context): Palette {
@@ -668,12 +719,14 @@ class ChatView(
                     muted = 0xFF9EA0AA.toInt(), soft = 0xFF2A2B33.toInt(),
                     accent = 0xFF9AA3FF.toInt(), accentSoft = 0xFF2E3354.toInt(),
                     onAccentSoft = 0xFFD0D4FF.toInt(), ripple = 0x33FFFFFF, error = 0xFFFF8A65.toInt(),
+                    bubble = 0xFF2F3038.toInt(),
                 ) else Palette(
                     card = 0xFFFFFFFF.toInt(), stroke = 0xFFE4E4EA.toInt(),
                     text = 0xFF26262C.toInt(), strong = 0xFF0B0B10.toInt(),
                     muted = 0xFF6E6E78.toInt(), soft = 0xFFF2F2F6.toInt(),
                     accent = 0xFF4552CC.toInt(), accentSoft = 0xFFE8EAFC.toInt(),
                     onAccentSoft = 0xFF2F3BAA.toInt(), ripple = 0x22000000, error = 0xFFD84315.toInt(),
+                    bubble = 0xFFEFEFF3.toInt(),
                 )
             }
         }
