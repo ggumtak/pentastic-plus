@@ -70,6 +70,7 @@ class CaptureService : AccessibilityService() {
         instance = null
         removeSelector()
         panel?.close(resetSession = false)
+        InkDock.onServiceGone()
     }
 
     // ------------------------------------------------------------------ 캡처
@@ -92,6 +93,7 @@ class CaptureService : AccessibilityService() {
         pendingSince = now
         // 떠 있는 카드는 닫지 않고 잠시 감춘다. 새 캡처는 같은 카드(같은 자리, 같은 대화)에 붙는다.
         panel?.hideForCapture()
+        InkDock.setCaptureHidden(true)
         pending = true
         retried = false
         handler.postDelayed({ capture() }, delayMs)
@@ -113,6 +115,7 @@ class CaptureService : AccessibilityService() {
                     DebugLog.add("스크린샷 성공 (${shot?.width}x${shot?.height}, 요청 후 ${System.currentTimeMillis() - pendingSince}ms)")
                     if (shot == null) {
                         panel?.reveal()
+                InkDock.setCaptureHidden(false)
                         toast("화면 캡처에 실패했습니다.")
                         return
                     }
@@ -129,6 +132,7 @@ class CaptureService : AccessibilityService() {
                     }
                     pending = false
                     panel?.reveal()
+                InkDock.setCaptureHidden(false)
                     toast("화면 캡처에 실패했습니다 (코드 $errorCode).")
                 }
             })
@@ -136,6 +140,7 @@ class CaptureService : AccessibilityService() {
             DebugLog.add("스크린샷 예외: ${e.javaClass.simpleName} ${e.message}")
             pending = false
             panel?.reveal()
+                InkDock.setCaptureHidden(false)
             toast("화면 캡처를 시작하지 못했습니다: ${e.message}")
         }
     }
@@ -174,6 +179,7 @@ class CaptureService : AccessibilityService() {
                 removeSelector()
                 releaseShot(shot)
                 panel?.reveal()
+                InkDock.setCaptureHidden(false)
             },
         )
         val lp = WindowManager.LayoutParams(
@@ -202,6 +208,7 @@ class CaptureService : AccessibilityService() {
     }
 
     private fun removeSelector() {
+        InkDock.setCaptureHidden(false)
         val v = selector ?: return
         selector = null
         try {

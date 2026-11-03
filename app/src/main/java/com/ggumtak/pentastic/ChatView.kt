@@ -48,6 +48,13 @@ class ChatView(
 
     enum class Mode { CARD, DOCKED }
 
+    companion object {
+        private val attachedViews = mutableListOf<java.lang.ref.WeakReference<ChatView>>()
+
+        /** 지금 화면에 붙어 있는 채팅 중 가장 최근 것 (손글씨 후보를 넣을 곳) */
+        val active: ChatView? get() = attachedViews.lastOrNull { it.get()?.isAttachedToWindow == true }?.get()
+    }
+
     interface Actions {
         fun recapture()
         fun openSettings()
@@ -92,10 +99,8 @@ class ChatView(
     private val statusRow: LinearLayout
     val input: EditText
     private val sendBtn: TextView
-    private val inkPanel: LinearLayout
-    private val ink: InkView
-    private val candRow: LinearLayout
-    private val inkStatus: TextView
+    /** ✍ 손글씨 칸이 채팅 안에 붙을 자리 (칸 자체는 InkDock이 관리) */
+    private val inkSlot: FrameLayout
     private val chips = mutableListOf<TextView>()
     private val chipRow: LinearLayout
     private val subjectRow: LinearLayout
@@ -327,52 +332,10 @@ class ChatView(
         }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             .apply { topMargin = dp(10) })
 
-        // 손글씨 입력 (✍): 한자를 쓰면 후보가 뜨고, 고르면 입력칸에 들어간다
-        inkPanel = LinearLayout(ctx).apply {
-            orientation = VERTICAL
-            visibility = View.GONE
-        }
-        ink = InkView(ctx, lineColor = c.stroke, inkColor = c.strong, guideColor = c.stroke)
-        inkPanel.addView(ink, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(if (mode == Mode.DOCKED) 240 else 180)))
-        // 안내 문구와 후보 줄은 높이를 고정해서, 후보가 뜨고 사라져도 쓰는 칸이 움직이지 않게 한다
-        inkStatus = TextView(ctx).apply {
-            textSize = 12.5f
-            setTextColor(c.muted)
-            setPadding(dp(2), 0, 0, 0)
-            gravity = Gravity.CENTER_VERTICAL
-            isSingleLine = true
-            ellipsize = android.text.TextUtils.TruncateAt.END
-        }
-        inkPanel.addView(inkStatus, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(26)))
-        candRow = LinearLayout(ctx).apply {
-            orientation = HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        inkPanel.addView(HorizontalScrollView(ctx).apply {
-            isHorizontalScrollBarEnabled = false
-            isHorizontalFadingEdgeEnabled = true
-            setFadingEdgeLength(dp(24))
-            isFillViewport = true
-            addView(candRow, ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)))
-        val inkActions = LinearLayout(ctx).apply { orientation = HORIZONTAL }
-        inkActions.addView(chip("획 취소", primary = false) { ink.undo() }, LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(8) })
-        inkActions.addView(chip("지우기", primary = false) { ink.clear() }, LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(8) })
-        inkActions.addView(chip("부수·구성 묻기", primary = true) { askRadicals() }, LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(8) })
-        inkActions.addView(chip("닫기", primary = false) { toggleInk(false) }, LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        inkPanel.addView(HorizontalScrollView(ctx).apply {
-            isHorizontalScrollBarEnabled = false
-            isHorizontalFadingEdgeEnabled = true
-            setFadingEdgeLength(dp(24))
-            addView(inkActions)
-        }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
-        addView(inkPanel, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        // ✍ 손글씨 칸 자리 (채팅과 구분되는 미색 카드. ⧉로 화면 위에 띄울 수도 있다)
+        inkSlot = FrameLayout(ctx).apply { visibility = View.GONE }
+        addView(inkSlot, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             .apply { topMargin = dp(12) })
-        ink.onStrokesChanged = { recognizeInk() }
 
         // 직접 질문 입력줄
         val inputRow = LinearLayout(ctx).apply {
@@ -410,7 +373,7 @@ class ChatView(
             setTextColor(c.accent)
             background = RippleDrawable(ColorStateList.valueOf(c.ripple), null,
                 GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.WHITE) })
-            setOnClickListener { toggleInk(inkPanel.visibility != View.VISIBLE) }
+            setOnClickListener { InkDock.toggleIn(inkSlot, inkHeight()) }
         }, LayoutParams(dp(36), dp(36)).apply { marginEnd = dp(6) })
         inputRow.addView(input, LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         sendBtn = TextView(ctx).apply {
@@ -439,11 +402,14 @@ class ChatView(
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        attachedViews.removeAll { it.get() == null || it.get() === this }
+        attachedViews += java.lang.ref.WeakReference(this)
         session.addListener(listener)
         render()
     }
 
     override fun onDetachedFromWindow() {
+        attachedViews.removeAll { it.get() == null || it.get() === this }
         session.removeListener(listener)
         super.onDetachedFromWindow()
     }
@@ -466,59 +432,20 @@ class ChatView(
         if (toBottom.visibility != v) toBottom.visibility = v
     }
 
-    private fun toggleInk(show: Boolean) {
-        inkPanel.visibility = if (show) View.VISIBLE else View.GONE
-        if (!show) return
-        inkStatus.text = "한자를 쓰면 아래에 후보가 나옵니다 · 펜 버튼을 누른 채 그으면 지워집니다"
-        Handwriting.prepare { err ->
-            if (err != null) inkStatus.text = err
-        }
+    private fun inkHeight() = dp(if (mode == Mode.DOCKED) 240 else 180)
+
+    /** 떠 있던 손글씨 칸을 이 채팅 안으로 돌려놓는다 */
+    fun showInkDocked() = InkDock.showIn(inkSlot, inkHeight())
+
+    fun appendInput(t: String) {
+        input.append(t)
     }
 
-    private fun recognizeInk() {
-        if (ink.isEmpty) {
-            candRow.removeAllViews()
-            return
-        }
-        Handwriting.prepare { err ->
-            if (err != null) {
-                inkStatus.text = err
-                return@prepare
-            }
-            Handwriting.recognize(ink.strokeData, ink.width.toFloat(), ink.height.toFloat()) { cands ->
-                candRow.removeAllViews()
-                if (cands.isEmpty()) inkStatus.text = "인식하지 못했습니다. 조금 더 크게 또는 또박또박 써 보세요."
-                cands.forEach { cand ->
-                    candRow.addView(chip(cand, primary = false) {
-                        input.append(cand)
-                        ink.clear()
-                        inkStatus.text = "입력칸: ${input.text}  ·  더 쓰거나 [부수·구성 묻기]"
-                    }.apply {
-                        textSize = 22f
-                        setTypeface(Typeface.DEFAULT, Typeface.NORMAL)
-                        textLocale = java.util.Locale.JAPAN
-                        setPadding(dp(14), dp(2), dp(14), dp(2))
-                        gravity = Gravity.CENTER
-                        minWidth = dp(48)
-                    },
-                        LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(6) })
-                }
-            }
-        }
-    }
+    fun inputText(): String = input.text.toString()
 
-    /** 입력칸의 한자(비어 있으면 가장 그럴듯한 후보)에 대해 부수·구성을 묻는다. */
-    private fun askRadicals() {
-        var text = input.text.toString().trim()
-        if (text.isEmpty() && candRow.childCount > 0) text = (candRow.getChildAt(0) as TextView).text.toString()
-        if (text.isEmpty()) {
-            inkStatus.text = "먼저 한자를 쓰고 후보를 골라 주세요."
-            return
-        }
+    fun clearInput() {
         input.setText("")
-        ink.clear()
         actions.inputDone()
-        session.send(ClaudeTutor.radicalQuestion(text), "부수·구성: $text")
     }
 
     private fun toggleSubjects() {
