@@ -45,6 +45,13 @@ class InkView(
 
     var onStrokesChanged: (() -> Unit)? = null
 
+    /** 칸을 항상 정사각으로 잴지 (연습장 화면 안). 떠 있는 연습장은 너비·높이를 따로 조절하므로 끈다. */
+    var keepSquare: Boolean = square
+        set(v) {
+            field = v
+            requestLayout()
+        }
+
     // 지우개: S펜 버튼을 누른 채(또는 펜 뒤쪽 지우개로) 그으면 닿는 획을 통째로 지운다
     private var erasing = false
     private var erasedAny = false
@@ -92,7 +99,7 @@ class InkView(
     val isEmpty get() = strokes.isEmpty()
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        if (!square) return super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+        if (!keepSquare) return super.onMeasure(widthMeasureSpec, heightMeasureSpec)
         val w = MeasureSpec.getSize(widthMeasureSpec)
         val h = MeasureSpec.getSize(heightMeasureSpec)
         val s = if (h == 0) w else min(w, h)

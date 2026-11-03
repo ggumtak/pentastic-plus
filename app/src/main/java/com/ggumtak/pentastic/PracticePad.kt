@@ -57,7 +57,6 @@ class PracticePad(ctx: Context) : LinearLayout(ctx) {
     private val swapBtn: TextView
     private val flipBtn: TextView
     private val floatBtn: TextView
-    private val resizeHandle: TextView
     private var ghostOn = true
     private var topCandidate: String? = null
 
@@ -168,28 +167,6 @@ class PracticePad(ctx: Context) : LinearLayout(ctx) {
             isHorizontalFadingEdgeEnabled = true
             addView(actions)
         }, LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        // 크기 조절 손잡이 (떠 있을 때만): 끌면 연습장 크기가 바뀐다
-        resizeHandle = TextView(ctx).apply {
-            text = "⇲"
-            textSize = 20f
-            gravity = Gravity.CENTER
-            setTextColor(c.muted)
-            visibility = View.GONE
-        }
-        actionsRow.addView(resizeHandle, LayoutParams(dp(40), dp(40)).apply { marginStart = dp(6) })
-        var downX = 0f
-        var startW = 0
-        resizeHandle.setOnTouchListener { _, e ->
-            when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    downX = e.rawX
-                    startW = width
-                }
-                MotionEvent.ACTION_MOVE -> PracticeDock.resize(this, startW + (e.rawX - downX).roundToInt())
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> PracticeDock.saveSize(this)
-            }
-            true
-        }
 
         target.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c2: Int) {}
@@ -218,7 +195,7 @@ class PracticePad(ctx: Context) : LinearLayout(ctx) {
     fun layoutFor(floating: Boolean, bottomBar: Boolean, inkSide: Int = 0) {
         removeAllViews()
         if (floating) {
-            setPadding(dp(16), dp(10), dp(16), dp(10))
+            setPadding(dp(18), dp(14), dp(18), dp(14))
             background = GradientDrawable().apply {
                 cornerRadius = dpf(18f)
                 setColor(c.card)
@@ -234,7 +211,8 @@ class PracticePad(ctx: Context) : LinearLayout(ctx) {
         swapBtn.visibility = if (floating) View.GONE else View.VISIBLE
         flipBtn.visibility = if (floating) View.GONE else View.VISIBLE
         floatBtn.text = if (floating) "⤓ 화면에 붙이기" else "⧉ 띄우기"
-        resizeHandle.visibility = if (floating) View.VISIBLE else View.GONE
+        // 떠 있을 때는 가장자리로 너비·높이를 따로 조절하므로 정사각 고정을 푼다
+        ink.keepSquare = !floating
 
         val bar = !floating && bottomBar
         if (!bar) addView(toolbarScroll, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -396,7 +374,7 @@ class PracticePad(ctx: Context) : LinearLayout(ctx) {
 @SuppressLint("ClickableViewAccessibility")
 object PracticeDock {
     private var pad: PracticePad? = null
-    private var window: FrameLayout? = null
+    private var window: ResizableFrame? = null
     private var lp: WindowManager.LayoutParams? = null
     private var lastX = -1
     private var lastY = -1
@@ -431,12 +409,53 @@ object PracticeDock {
         val shadow = (12 * d).roundToInt()
         val padW = sp(ctx).getInt("practice_float_w", (460 * d).roundToInt())
             .coerceIn((320 * d).roundToInt(), screen.width() - (24 * d).roundToInt() - shadow * 2)
-        p.layoutFor(floating = true, bottomBar = false, inkSide = padW - (32 * d).roundToInt())
-        val frame = FrameLayout(svc).apply {
+        val inkH = sp(ctx).getInt("practice_float_ink_h", padW - (36 * d).roundToInt())
+            .coerceIn((140 * d).roundToInt(), (screen.height() * 0.75f).roundToInt())
+        p.layoutFor(floating = true, bottomBar = false, inkSide = inkH)
+        lateinit var params: WindowManager.LayoutParams
+        lateinit var frame: ResizableFrame
+        var start = ResizableFrame.Box(0, 0, 0, 0)
+        // 가장자리·모서리 어디든 잡고 끌면 크기 조절 (너비 = 연습장 너비, 높이 = 쓰기 칸 높이)
+        frame = ResizableFrame(
+            svc, ResizableFrame.ALL,
+            band = shadow + (8 * d).roundToInt(), corner = shadow + (14 * d).roundToInt(),
+            outlineColor = ChatView.Palette.of(svc).accent,
+            listener = object : ResizableFrame.Listener {
+                override fun onResizeStart() {
+                    start = ResizableFrame.Box(params.x, params.y, p.width, p.ink.height)
+                }
+
+                override fun onResize(dLeft: Int, dTop: Int, dRight: Int, dBottom: Int) {
+                    val b = ResizableFrame.resized(
+                        start, dLeft, dTop, dRight, dBottom,
+                        minW = (320 * d).roundToInt(), maxW = screen.width() - shadow * 2,
+                        minH = (140 * d).roundToInt(), maxH = (screen.height() * 0.75f).roundToInt(),
+                    )
+                    val lpPad = p.layoutParams
+                    if (lpPad != null && lpPad.width != b.w) {
+                        lpPad.width = b.w
+                        p.layoutParams = lpPad
+                    }
+                    p.setInkSide(b.h)
+                    params.x = b.x
+                    params.y = b.y
+                    lastX = b.x
+                    lastY = b.y
+                    try {
+                        wm.updateViewLayout(frame, params)
+                    } catch (_: Exception) {
+                    }
+                }
+
+                override fun onResizeEnd() {
+                    sp(svc).edit().putInt("practice_float_w", p.width).putInt("practice_float_ink_h", p.ink.height).apply()
+                }
+            },
+        ).apply {
             setPadding(shadow, shadow, shadow, shadow)
             addView(p, FrameLayout.LayoutParams(padW, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
-        val params = WindowManager.LayoutParams(
+        params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
@@ -502,24 +521,6 @@ object PracticeDock {
     fun close() {
         if (floating) removeWindow()
         pad?.let { detach(it) }
-    }
-
-    /** 크기 조절 손잡이: 너비를 바꾸면 정사각 쓰기 칸도 같이 커진다 */
-    fun resize(p: PracticePad, width: Int) {
-        if (!floating) return
-        val d = p.resources.displayMetrics.density
-        val screen = p.context.getSystemService(WindowManager::class.java).maximumWindowMetrics.bounds
-        val w = width.coerceIn((320 * d).roundToInt(), screen.width() - (48 * d).roundToInt())
-        val lpPad = p.layoutParams ?: return
-        if (lpPad.width != w) {
-            lpPad.width = w
-            p.layoutParams = lpPad
-            p.setInkSide(w - (32 * d).roundToInt())
-        }
-    }
-
-    fun saveSize(p: PracticePad) {
-        if (floating) sp(p.context).edit().putInt("practice_float_w", p.width).apply()
     }
 
     /** 떠 있을 때 '연습할 한자' 칸에 키보드로 입력할 수 있게 창 포커스를 켜고 끈다 */
