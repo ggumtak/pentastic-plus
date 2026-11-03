@@ -33,15 +33,15 @@ class InkPad(ctx: Context) : LinearLayout(ctx) {
     private fun dp(v: Int) = (v * density).roundToInt()
     private fun dpf(v: Float) = v * density
 
-    /** 종이 느낌 색 (채팅의 흰/검정 카드와 구분) */
-    private val night = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-    private val paper = if (night) 0xFF29261F.toInt() else 0xFFFBF7EC.toInt()
-    private val paperStroke = if (night) 0xFF4A4436.toInt() else 0xFFE3D9BF.toInt()
-    private val inkColor = if (night) 0xFFF4EFE2.toInt() else 0xFF1E1B16.toInt()
-    private val text = if (night) 0xFFEDE7D8.toInt() else 0xFF3A3427.toInt()
-    private val muted = if (night) 0xFFA9A08B.toInt() else 0xFF8A806A.toInt()
-    private val chipBg = if (night) 0xFF3A362C.toInt() else 0xFFF1EAD6.toInt()
-    private val accent = if (night) 0xFFE0B860.toInt() else 0xFF9A6B12.toInt()
+    /** 채팅과 같은 흰(다크 모드는 어두운) 바탕. 구분은 파란 테두리와 파란 제목 표시로 한다. */
+    private val pal = ChatView.Palette.of(ctx)
+    private val paper = pal.card
+    private val paperStroke = pal.stroke
+    private val inkColor = pal.strong
+    private val text = pal.text
+    private val muted = pal.muted
+    private val chipBg = pal.soft
+    private val accent = pal.accent
 
     val header: LinearLayout
     val ink: InkView
@@ -56,7 +56,7 @@ class InkPad(ctx: Context) : LinearLayout(ctx) {
         background = GradientDrawable().apply {
             cornerRadius = dpf(16f)
             setColor(paper)
-            setStroke(dp(1), paperStroke)
+            setStroke(dp(2), accent)
         }
 
         // 제목줄 (떠 있을 때는 여기를 잡고 끌어서 옮긴다)
@@ -67,9 +67,14 @@ class InkPad(ctx: Context) : LinearLayout(ctx) {
         }
         header.addView(TextView(ctx).apply {
             text = "✍ 손글씨"
-            textSize = 15f
+            textSize = 14f
             setTypeface(typeface, Typeface.BOLD)
-            setTextColor(this@InkPad.text)
+            setTextColor(pal.onAccentSoft)
+            setPadding(dp(12), dp(5), dp(12), dp(5))
+            background = GradientDrawable().apply {
+                cornerRadius = dpf(14f)
+                setColor(pal.accentSoft)
+            }
         })
         header.addView(View(ctx), LayoutParams(0, 1, 1f))
         floatBtn = chip("⧉ 띄우기") { InkDock.toggleFloat(context) }
