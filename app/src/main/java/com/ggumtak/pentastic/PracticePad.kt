@@ -244,7 +244,11 @@ class PracticePad(ctx: Context) : LinearLayout(ctx) {
         ink.ghost = if (ghostOn) target.text.toString().trim().take(2) else null
     }
 
+    /** 인식 요청 번호. 늦게 도착한 예전 결과(이미 지운 글씨의 후보)를 버리는 데 쓴다. */
+    private var recogSeq = 0
+
     private fun recognize() {
+        val seq = ++recogSeq
         if (ink.isEmpty) {
             topCandidate = null
             candRow.removeAllViews()
@@ -252,11 +256,13 @@ class PracticePad(ctx: Context) : LinearLayout(ctx) {
             return
         }
         Handwriting.prepare { err ->
+            if (seq != recogSeq) return@prepare
             if (err != null) {
                 result.text = err
                 return@prepare
             }
             Handwriting.recognize(ink.strokeData, ink.width.toFloat(), ink.height.toFloat()) { cands ->
+                if (seq != recogSeq) return@recognize
                 topCandidate = cands.firstOrNull()
                 checkMatch(cands)
                 showCandidates(cands)
@@ -376,6 +382,8 @@ object PracticeDock {
     private var pad: PracticePad? = null
     private var window: ResizableFrame? = null
     private var lp: WindowManager.LayoutParams? = null
+    /** 창을 띄운 WindowManager. 서비스가 꺼지는 중(instance == null)에도 창을 지울 수 있게 들고 있는다. */
+    private var windowWm: WindowManager? = null
     private var lastX = -1
     private var lastY = -1
 
@@ -405,7 +413,7 @@ object PracticeDock {
         p.host = null
         val wm = svc.getSystemService(WindowManager::class.java)
         val d = svc.resources.displayMetrics.density
-        val screen = wm.maximumWindowMetrics.bounds
+        var screen = wm.maximumWindowMetrics.bounds
         // 상태 표시줄·내비게이션 바를 뺀 실제로 쓸 수 있는 영역 안에 창 전체가 들어오게 한다
         val usable = ResizableFrame.usableBounds(wm)
         val shadow = (12 * d).roundToInt()
@@ -500,14 +508,16 @@ object PracticeDock {
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     downX = e.rawX; downY = e.rawY; startX = params.x; startY = params.y
+                    // 화면을 돌렸을 수도 있으니 잡을 때마다 화면 크기를 다시 잰다
+                    screen = wm.maximumWindowMetrics.bounds
                     // 메뉴줄은 옆으로 밀리는 스크롤 안에 있어서, 끄는 동안 스크롤이 터치를 가져가 끊기지 않게 막는다
                     p.toolbar.parent?.requestDisallowInterceptTouchEvent(true)
                 }
                 MotionEvent.ACTION_MOVE -> {
                     params.x = (startX + (e.rawX - downX)).roundToInt()
-                        .coerceIn(-shadow, screen.right - frame.width + shadow)
+                        .clampTo(-shadow, screen.right - frame.width + shadow)
                     params.y = (startY + (e.rawY - downY)).roundToInt()
-                        .coerceIn(-shadow, screen.bottom - frame.height + shadow)
+                        .clampTo(-shadow, screen.bottom - frame.height + shadow)
                     lastX = params.x
                     lastY = params.y
                     try {
@@ -521,6 +531,7 @@ object PracticeDock {
         wm.addView(frame, params)
         window = frame
         lp = params
+        windowWm = wm
         floating = true
         p.prepare()
         PracticeActivity.finishCurrent()
@@ -553,7 +564,7 @@ object PracticeDock {
         params.flags = if (on) params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
         else params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
         try {
-            CaptureService.instance?.getSystemService(WindowManager::class.java)?.updateViewLayout(w, params)
+            windowWm?.updateViewLayout(w, params)
         } catch (_: Exception) {
         }
         val imm = field.context.getSystemService(InputMethodManager::class.java)
@@ -570,12 +581,13 @@ object PracticeDock {
         val w = window ?: return
         pad?.toolbar?.setOnTouchListener(null)
         try {
-            CaptureService.instance?.getSystemService(WindowManager::class.java)?.removeViewImmediate(w)
+            windowWm?.removeViewImmediate(w)
         } catch (_: Exception) {
         }
         w.removeAllViews()
         window = null
         lp = null
+        windowWm = null
         floating = false
     }
 
@@ -587,7 +599,7 @@ object PracticeDock {
         params.flags = if (hidden) params.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
         else params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
         try {
-            CaptureService.instance?.getSystemService(WindowManager::class.java)?.updateViewLayout(w, params)
+            windowWm?.updateViewLayout(w, params)
         } catch (_: Exception) {
         }
     }

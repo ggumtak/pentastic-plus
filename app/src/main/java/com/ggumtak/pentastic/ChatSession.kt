@@ -154,6 +154,12 @@ class ChatSession private constructor(private val app: Context) {
     fun stop() {
         if (!busy) return
         generation++ // 진행 중인 요청의 남은 글과 결과는 무시
+        // 진행 중인 스트림을 닫고, 대화는 새 인스턴스로 이어 간다 (멈춘 질문·답은 기록에 넣지 않음)
+        tutor?.let { old ->
+            old.cancel()
+            tutor = old.withModel(old.model)
+        }
+        main.removeCallbacks(flush)
         flush.run()
         entries.lastOrNull()?.let { if (it.error == null) it.error = "(멈춤)" }
         inFlight = null
@@ -168,6 +174,13 @@ class ChatSession private constructor(private val app: Context) {
         if (busy) return
         val last = entries.lastOrNull() ?: return
         if (!last.retryable) return
+        // 키가 없으면 send()가 보내지 않으므로, 질문을 지우기 전에 확인한다
+        if (ApiClient.get(app) == null) {
+            notice = "API 키가 없어요. ⚙ 설정에서 키를 넣어 주세요."
+            noticeIsError = true
+            changed()
+            return
+        }
         entries.removeAt(entries.lastIndex)
         send(last.question, last.label)
     }
@@ -239,6 +252,8 @@ class ChatSession private constructor(private val app: Context) {
                         firstLogged = true
                         DebugLog.add("첫 글자까지 ${System.currentTimeMillis() - started}ms")
                     }
+                    // 멈춘 뒤에 늦게 온 글은 다음 답에 섞이지 않게 버린다
+                    if (gen != generation) return@ask
                     synchronized(pendingText) { pendingText.append(delta) }
                     main.post {
                         if (gen != generation || flushScheduled) return@post

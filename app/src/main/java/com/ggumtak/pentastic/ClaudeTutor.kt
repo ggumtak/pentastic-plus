@@ -49,10 +49,15 @@ class ClaudeTutor(
     }
 
     /** 같은 대화를 다른 모델로 이어 간다. */
-    fun withModel(newModel: String): ClaudeTutor = ClaudeTutor(client, newModel, systemPrompt, transcript.toList())
+    fun withModel(newModel: String): ClaudeTutor =
+        ClaudeTutor(client, newModel, systemPrompt, synchronized(this) { transcript.toList() })
 
     @Volatile
     var cancelled = false
+
+    /** 지금 받고 있는 스트림. 멈추면 바로 닫아서 네트워크와 토큰 낭비를 끊는다. */
+    @Volatile
+    private var activeStream: AutoCloseable? = null
 
     /**
      * 질문을 보내고 답변을 스트리밍으로 받는다. image가 있으면 이번 질문에 붙인다 (새 캡처).
@@ -90,7 +95,7 @@ class ClaudeTutor(
             .model(model)
             .maxTokens(4096L)
             .system(systemPrompt.ifBlank { SYSTEM_PROMPT } + "\n\n" + OUTPUT_LANGUAGE_RULE)
-            .messages(history + userMessage)
+            .messages(synchronized(this) { history + userMessage })
             .outputConfig(OutputConfig.builder().effort(OutputConfig.Effort.LOW).build())
         // Haiku는 생각(thinking)을 꺼서 첫 글자가 빨리 나오게 한다.
         // Sonnet 5.5는 disabled를 받지 않으므로 기본(adaptive) + 낮은 effort로 둔다.
@@ -101,7 +106,10 @@ class ClaudeTutor(
         val accumulator = MessageAccumulator.create()
         try {
             val stream = client.messages().createStreaming(builder.build())
+            activeStream = stream
             try {
+                // 스트림을 여는 사이에 멈췄으면 바로 끝낸다 (finally에서 닫힘)
+                if (cancelled || shouldStop()) return ""
                 for (raw in stream) {
                     if (cancelled || shouldStop()) return ""
                     val event = accumulator.accumulate(raw)
@@ -109,29 +117,16 @@ class ClaudeTutor(
                         .ifPresent { t -> onDelta(t.text()) }
                 }
             } finally {
+                activeStream = null
                 stream.close()
             }
-        } catch (e: UnauthorizedException) {
-            throw TutorException("API 키가 올바르지 않습니다. 설정에서 키를 다시 확인해 주세요.", e)
-        } catch (e: PermissionDeniedException) {
-            throw TutorException("이 API 키로는 사용할 수 없습니다. (권한 없음)", e)
-        } catch (e: NotFoundException) {
-            throw TutorException("모델을 찾을 수 없습니다: $model", e)
-        } catch (e: RateLimitException) {
-            throw TutorException("요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.", e)
-        } catch (e: BadRequestException) {
-            val msg = e.message ?: ""
-            if (msg.contains("credit", ignoreCase = true)) {
-                throw TutorException("API 크레딧이 부족합니다. console.anthropic.com에서 충전해 주세요.", e)
-            }
-            throw TutorException("요청 오류: $msg", e)
-        } catch (e: InternalServerException) {
-            throw TutorException("Claude 서버 오류입니다. 잠시 후 다시 시도해 주세요.", e)
-        } catch (e: AnthropicServiceException) {
-            throw TutorException("API 오류 (${e.statusCode()}): ${e.message}", e)
-        } catch (e: AnthropicIoException) {
-            throw TutorException("인터넷 연결을 확인해 주세요.", e)
+        } catch (e: Exception) {
+            // 멈춤으로 스트림을 닫아서 난 오류는 오류로 보이지 않는다
+            if (cancelled || shouldStop()) return ""
+            throw toTutorException(e)
         }
+        // 마지막 이벤트를 받는 사이에 멈췄으면 이 답은 대화 기록에 넣지 않는다
+        if (cancelled || shouldStop()) return ""
 
         val message = accumulator.message()
         val answer = message.content().mapNotNull { b -> b.text().orElse(null)?.text() }.joinToString("")
@@ -139,9 +134,11 @@ class ClaudeTutor(
         if (stop == StopReason.REFUSAL) {
             throw TutorException("Claude가 이 요청에 답하지 않았습니다. 질문을 바꿔 다시 시도해 주세요.")
         }
-        history += userMessage
-        history += message.toParam()
-        transcript += userMessage to answer
+        synchronized(this) {
+            history += userMessage
+            history += message.toParam()
+            transcript += userMessage to answer
+        }
         if (stop == StopReason.MAX_TOKENS) {
             // 답이 길이 제한에 걸려 잘렸으면 화면에도 알려 준다 (기록에는 원문만 남긴다)
             val note = "\n\n(답변이 길어 여기서 끊겼습니다. '이어서'라고 보내면 계속합니다.)"
@@ -151,9 +148,32 @@ class ClaudeTutor(
         return answer
     }
 
+    /** SDK 오류를 사용자에게 보여줄 한국어 메시지로 바꾼다. 모르는 오류는 그대로 둔다. */
+    private fun toTutorException(e: Exception): Exception = when (e) {
+        is UnauthorizedException -> TutorException("API 키가 올바르지 않습니다. 설정에서 키를 다시 확인해 주세요.", e)
+        is PermissionDeniedException -> TutorException("이 API 키로는 사용할 수 없습니다. (권한 없음)", e)
+        is NotFoundException -> TutorException("모델을 찾을 수 없습니다: $model", e)
+        is RateLimitException -> TutorException("요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.", e)
+        is BadRequestException -> {
+            val msg = e.message ?: ""
+            if (msg.contains("credit", ignoreCase = true)) {
+                TutorException("API 크레딧이 부족합니다. console.anthropic.com에서 충전해 주세요.", e)
+            } else TutorException("요청 오류: $msg", e)
+        }
+        is InternalServerException -> TutorException("Claude 서버 오류입니다. 잠시 후 다시 시도해 주세요.", e)
+        is AnthropicServiceException -> TutorException("API 오류 (${e.statusCode()}): ${e.message}", e)
+        is AnthropicIoException -> TutorException("인터넷 연결을 확인해 주세요.", e)
+        else -> e
+    }
+
     /** 진행 중인 답변을 멈춘다. 공유 클라이언트는 닫지 않는다. */
     fun cancel() {
         cancelled = true
+        // 받고 있던 스트림을 닫아 서버 쪽 생성도 끊는다 (읽던 스레드는 오류로 빠져나와 조용히 끝난다)
+        try {
+            activeStream?.close()
+        } catch (_: Exception) {
+        }
     }
 
     class TutorException(message: String, cause: Throwable? = null) : Exception(message, cause)

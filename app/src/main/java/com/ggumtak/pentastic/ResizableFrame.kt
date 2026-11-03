@@ -183,3 +183,6 @@ class ResizableFrame(
         }
     }
 }
+
+/** coerceIn과 같지만, 창이 화면보다 커서 범위가 비면(hi < lo) 예외 대신 lo(위·왼쪽 끝)에 붙인다. */
+internal fun Int.clampTo(lo: Int, hi: Int): Int = if (hi < lo) lo else coerceIn(lo, hi)

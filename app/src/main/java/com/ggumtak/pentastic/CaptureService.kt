@@ -63,15 +63,21 @@ class CaptureService : AccessibilityService() {
 
     override fun onDestroy() {
         cleanup()
+        // 이미 넘긴 이미지 변환은 끝까지 하고 스레드를 닫는다
+        worker.shutdown()
         super.onDestroy()
     }
 
     private fun cleanup() {
-        instance = null
-        removeSelector()
-        panel?.close(resetSession = false)
+        // 떠 있는 창부터 거둔다 (서비스가 아직 살아 있을 때 지워야 창이 남지 않는다)
         InkDock.onServiceGone()
         PracticeDock.onServiceGone()
+        // 예약된 캡처·재시도가 꺼진 서비스에서 창을 띄우려다 앱이 죽지 않게 취소한다
+        handler.removeCallbacksAndMessages(null)
+        pending = false
+        discardSelector()
+        panel?.close(resetSession = false)
+        if (instance === this) instance = null
     }
 
     // ------------------------------------------------------------------ 캡처
@@ -89,7 +95,7 @@ class CaptureService : AccessibilityService() {
                 DebugLog.add("→ 무시: 선택 화면이 이미 떠 있음")
                 return
             }
-            removeSelector()
+            discardSelector()
         }
         pendingSince = now
         // 떠 있는 카드는 닫지 않고 잠시 감춘다. 새 캡처는 같은 카드(같은 자리, 같은 대화)에 붙는다.
@@ -102,11 +108,16 @@ class CaptureService : AccessibilityService() {
     }
 
     private fun capture() {
+        if (instance !== this) return
         try {
             takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
                 override fun onSuccess(result: ScreenshotResult) {
                     pending = false
                     val hw = result.hardwareBuffer
+                    if (instance !== this@CaptureService) {
+                        hw.close()
+                        return
+                    }
                     // 화면 전체를 복사하지 않고 그대로 보여준다 (멈춘 화면이 더 빨리 뜬다).
                     // 복사는 나중에 고른 부분만 한다.
                     val shot = Bitmap.wrapHardwareBuffer(hw, result.colorSpace)
@@ -181,8 +192,7 @@ class CaptureService : AccessibilityService() {
             onSelected = { bitmapRect, screenRect -> onSelected(shot, bitmapRect, screenRect) },
             onCancel = { reason ->
                 DebugLog.add("선택 취소: $reason")
-                removeSelector()
-                releaseShot(shot)
+                discardSelector()
                 panel?.reveal()
                 InkDock.setCaptureHidden(false)
                 PracticeDock.setCaptureHidden(false)
@@ -211,6 +221,15 @@ class CaptureService : AccessibilityService() {
 
         // 고르는 동안 API 서버 연결을 미리 열어 둔다 (토큰을 쓰지 않는 요청)
         thread(name = "prewarm") { ApiClient.get(this)?.let { ClaudeTutor.prewarmConnection(it) } }
+    }
+
+    /** 고르지 않고 선택 화면을 치울 때: 캡처 이미지(와 그 복사본)도 바로 놓아 준다 */
+    private fun discardSelector() {
+        val v = selector ?: return
+        removeSelector()
+        v.dispose()
+        shotBuffer?.close()
+        shotBuffer = null
     }
 
     private fun removeSelector() {

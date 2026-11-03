@@ -38,7 +38,8 @@ class FloatingPanel(
     private val wm = ctx.getSystemService(WindowManager::class.java)
     private val main = Handler(Looper.getMainLooper())
     private val density = ctx.resources.displayMetrics.density
-    private val screen: Rect = wm.maximumWindowMetrics.bounds
+    // 화면을 돌리면 크기가 바뀌므로 쓸 때마다 다시 잰다
+    private val screen: Rect get() = wm.maximumWindowMetrics.bounds
     private val margin = dp(12)
     private val shadow = dp(14) // 그림자가 잘리지 않게 카드 바깥에 두는 여백
 
@@ -157,7 +158,7 @@ class FloatingPanel(
         val spaceAbove = selection.top - screen.top
         val spaceRight = screen.right - selection.right
         val spaceLeft = selection.left - screen.left
-        val alignedX = (selection.left - shadow).coerceIn(margin, screen.right - w - margin)
+        val alignedX = (selection.left - shadow).clampTo(margin, screen.right - w - margin)
         when {
             spaceBelow >= need -> {
                 anchor = Anchor.BELOW
@@ -224,9 +225,9 @@ class FloatingPanel(
                         anchor = Anchor.FREE
                         yBeforeIme = null
                         lp.x = (startX + dx).roundToInt()
-                            .coerceIn(-shadow, screen.right - window.width + shadow)
+                            .clampTo(-shadow, screen.right - window.width + shadow)
                         lp.y = (startY + dy).roundToInt()
-                            .coerceIn(-shadow, screen.bottom - window.height + shadow)
+                            .clampTo(-shadow, screen.bottom - window.height + shadow)
                         wm.updateViewLayout(window, lp)
                     }
                 }

@@ -138,17 +138,23 @@ class InkPad(ctx: Context) : LinearLayout(ctx) {
         Handwriting.prepare { err -> if (err != null) status.text = err }
     }
 
+    /** 인식 요청 번호. 늦게 도착한 예전 결과(이미 지운 글씨의 후보)를 버리는 데 쓴다. */
+    private var recogSeq = 0
+
     private fun recognize() {
+        val seq = ++recogSeq
         if (ink.isEmpty) {
             candRow.removeAllViews()
             return
         }
         Handwriting.prepare { err ->
+            if (seq != recogSeq) return@prepare
             if (err != null) {
                 status.text = err
                 return@prepare
             }
             Handwriting.recognize(ink.strokeData, ink.width.toFloat(), ink.height.toFloat()) { cands ->
+                if (seq != recogSeq) return@recognize
                 candRow.removeAllViews()
                 if (cands.isEmpty()) status.text = "인식하지 못했습니다. 조금 더 크게 또는 또박또박 써 보세요."
                 cands.forEachIndexed { i, cand ->
@@ -216,6 +222,8 @@ object InkDock {
     private var pad: InkPad? = null
     private var window: ResizableFrame? = null
     private var lp: WindowManager.LayoutParams? = null
+    /** 창을 띄운 WindowManager. 서비스가 꺼지는 중(instance == null)에도 창을 지울 수 있게 들고 있는다. */
+    private var windowWm: WindowManager? = null
     private var lastX = -1
     private var lastY = -1
 
@@ -346,7 +354,7 @@ object InkDock {
         detach(p)
         val wm = svc.getSystemService(WindowManager::class.java)
         val d = svc.resources.displayMetrics.density
-        val screen = wm.maximumWindowMetrics.bounds
+        var screen = wm.maximumWindowMetrics.bounds
         // 상태 표시줄·내비게이션 바를 뺀 실제로 쓸 수 있는 영역 안에 창 전체가 들어오게 한다
         val usable = ResizableFrame.usableBounds(wm)
         val shadow = (12 * d).roundToInt()
@@ -441,14 +449,16 @@ object InkDock {
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     downX = e.rawX; downY = e.rawY; startX = params.x; startY = params.y
+                    // 화면을 돌렸을 수도 있으니 잡을 때마다 화면 크기를 다시 잰다
+                    screen = wm.maximumWindowMetrics.bounds
                     // 끄는 동안 다른 곳(스크롤 등)이 터치를 가로채 끊기지 않게
                     p.header.parent?.requestDisallowInterceptTouchEvent(true)
                 }
                 MotionEvent.ACTION_MOVE -> {
                     params.x = (startX + (e.rawX - downX)).roundToInt()
-                        .coerceIn(-shadow, screen.right - frame.width + shadow)
+                        .clampTo(-shadow, screen.right - frame.width + shadow)
                     params.y = (startY + (e.rawY - downY)).roundToInt()
-                        .coerceIn(-shadow, screen.bottom - frame.height + shadow)
+                        .clampTo(-shadow, screen.bottom - frame.height + shadow)
                     lastX = params.x
                     lastY = params.y
                     try {
@@ -462,6 +472,7 @@ object InkDock {
         wm.addView(frame, params)
         window = frame
         lp = params
+        windowWm = wm
         floating = true
         p.prepare()
         DebugLog.add("손글씨 칸 띄움")
@@ -479,13 +490,14 @@ object InkDock {
         val p = pad
         p?.header?.setOnTouchListener(null)
         try {
-            CaptureService.instance?.getSystemService(WindowManager::class.java)?.removeViewImmediate(w)
+            windowWm?.removeViewImmediate(w)
         } catch (_: Exception) {
         }
         w.removeAllViews()
         p?.setFloating(false)
         window = null
         lp = null
+        windowWm = null
         floating = false
     }
 
@@ -497,7 +509,7 @@ object InkDock {
         params.flags = if (hidden) params.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
         else params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
         try {
-            CaptureService.instance?.getSystemService(WindowManager::class.java)?.updateViewLayout(w, params)
+            windowWm?.updateViewLayout(w, params)
         } catch (_: Exception) {
         }
     }

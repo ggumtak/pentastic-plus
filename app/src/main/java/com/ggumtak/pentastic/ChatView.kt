@@ -411,6 +411,8 @@ class ChatView(
     override fun onDetachedFromWindow() {
         attachedViews.removeAll { it.get() == null || it.get() === this }
         session.removeListener(listener)
+        // 이 채팅 안에 붙어 있던 손글씨 칸을 빼 둔다. 안 빼면 앱 전체에서 하나뿐인 칸이 닫힌 화면을 계속 붙잡는다.
+        if (inkSlot.childCount > 0 && !InkDock.floating) InkDock.close()
         super.onDetachedFromWindow()
     }
 

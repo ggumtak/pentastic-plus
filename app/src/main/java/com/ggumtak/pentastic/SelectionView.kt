@@ -160,6 +160,13 @@ class SelectionView(
         onSelected(Rect(left, top, right, bottom), screenRect)
     }
 
+    /** 선택 없이 치울 때 캡처 이미지와 복사본을 놓아 준다 (선택을 마친 경우엔 부르지 않는다) */
+    fun dispose() {
+        softCopy?.recycle()
+        softCopy = null
+        shot.recycle()
+    }
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.keyCode == KeyEvent.KEYCODE_BACK) {
             if (event.action == KeyEvent.ACTION_UP && !finished) {
