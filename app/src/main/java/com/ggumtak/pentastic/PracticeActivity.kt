@@ -37,6 +37,8 @@ class PracticeActivity : Activity() {
     private lateinit var split: LinearLayout
     private lateinit var topScroll: HorizontalScrollView
     private lateinit var actionsScroll: HorizontalScrollView
+    private lateinit var candScroll: HorizontalScrollView
+    private lateinit var candRow: LinearLayout
     private var topCandidate: String? = null
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
@@ -159,6 +161,26 @@ class PracticeActivity : Activity() {
             if (k.isEmpty()) result.text = "연습할 한자를 적거나 먼저 써 주세요."
             else session.send(ClaudeTutor.radicalQuestion(k), "부수·구성: $k")
         }
+        // 쓴 글씨를 그림 그대로 채팅에 '보낼 이미지'로 붙인다 (전송은 하지 않음)
+        action("그림 붙이기") {
+            val png = ink.toPng()
+            if (png == null) result.text = "먼저 칸에 한자를 써 주세요."
+            else {
+                session.attach(png.first, { png.second }, allowAutoAsk = false, mime = "image/png")
+                result.text = "쓴 글씨를 채팅에 붙였습니다. 옆에서 버튼을 누르거나 직접 물어보세요."
+            }
+        }
+
+        // 인식 후보: 누르면 옆 채팅 입력칸에 들어간다 (높이 고정이라 쓰는 칸이 움직이지 않음)
+        candRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        candScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            isHorizontalFadingEdgeEnabled = true
+            addView(candRow, ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }
         actionsScroll = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             isHorizontalFadingEdgeEnabled = true
@@ -213,6 +235,7 @@ class PracticeActivity : Activity() {
             gravity = Gravity.CENTER_HORIZONTAL
         })
         pad.addView(result)
+        pad.addView(candScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
         pad.addView(actionsScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         if (bottomBar) pad.addView(topScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             .apply { topMargin = dp(10) })
@@ -232,6 +255,40 @@ class PracticeActivity : Activity() {
         }
     }
 
+    private fun showCandidates(cands: List<String>) {
+        candRow.removeAllViews()
+        val c = chat.palette
+        if (cands.isNotEmpty()) {
+            candRow.addView(TextView(this).apply {
+                text = "채팅에 넣기 →"
+                textSize = 12.5f
+                setTextColor(c.muted)
+                setPadding(0, 0, dp(8), 0)
+            })
+        }
+        cands.take(8).forEachIndexed { i, cand ->
+            candRow.addView(TextView(this).apply {
+                text = cand
+                textSize = 22f
+                textLocale = Locale.JAPAN
+                gravity = Gravity.CENTER
+                minWidth = dp(48)
+                setTextColor(if (i == 0) c.onAccentSoft else c.text)
+                setPadding(dp(14), dp(2), dp(14), dp(2))
+                background = GradientDrawable().apply {
+                    cornerRadius = 18f * resources.displayMetrics.density
+                    setColor(if (i == 0) c.accentSoft else c.soft)
+                }
+                setOnClickListener {
+                    chat.input.append(cand)
+                    ink.clear()
+                    result.text = "채팅 입력칸: ${chat.input.text}  ·  더 쓰거나 옆에서 보내기"
+                }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                .apply { marginEnd = dp(6) })
+        }
+    }
+
     private fun updateGhost() {
         ink.ghost = if (ghostOn) target.text.toString().trim().take(2) else null
     }
@@ -239,7 +296,8 @@ class PracticeActivity : Activity() {
     private fun recognize() {
         if (ink.isEmpty) {
             topCandidate = null
-            result.text = "칸에 한자를 써 보세요."
+            candRow.removeAllViews()
+            if (chat.input.text.isNullOrEmpty()) result.text = "칸에 한자를 써 보세요."
             return
         }
         Handwriting.prepare { err ->
@@ -250,6 +308,7 @@ class PracticeActivity : Activity() {
             Handwriting.recognize(ink.strokeData, ink.width.toFloat(), ink.height.toFloat()) { cands ->
                 topCandidate = cands.firstOrNull()
                 checkMatch(cands)
+                showCandidates(cands)
             }
         }
     }
