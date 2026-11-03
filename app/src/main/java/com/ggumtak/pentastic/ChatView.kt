@@ -23,6 +23,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -75,6 +76,9 @@ class ChatView(
     private val attachImage: ImageView
     private val caption: TextView
     private val answerScroll: ScrollView
+    /** 대화 칸 + 그 위에 뜨는 '맨 아래로' 버튼 */
+    private val answerFrame: FrameLayout
+    private val toBottom: TextView
     /** 대화 목록: 질문 말풍선(오른쪽) + 답변(왼쪽 일반 글)을 차례로 쌓는다 */
     private val convo: LinearLayout
 
@@ -222,7 +226,37 @@ class ChatView(
             isVerticalScrollBarEnabled = true
             overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
         }
-        addView(answerScroll, if (mode == Mode.CARD)
+        // 위로 올려 읽는 중에는 대화 칸 아래 가운데에 ↓ 버튼 (누르면 맨 아래로)
+        answerFrame = FrameLayout(ctx)
+        answerFrame.addView(answerScroll, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            if (mode == Mode.CARD) ViewGroup.LayoutParams.WRAP_CONTENT else ViewGroup.LayoutParams.MATCH_PARENT,
+        ))
+        toBottom = TextView(ctx).apply {
+            text = "↓"
+            textSize = 18f
+            setTypeface(typeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setTextColor(c.text)
+            background = RippleDrawable(
+                ColorStateList.valueOf(c.ripple),
+                GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(c.card)
+                    setStroke(dp(1), c.stroke)
+                },
+                null,
+            )
+            elevation = dpf(6f)
+            visibility = View.GONE
+            setOnClickListener { answerScroll.smoothScrollTo(0, convo.height) }
+        }
+        answerFrame.addView(toBottom, FrameLayout.LayoutParams(dp(42), dp(42), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL)
+            .apply { bottomMargin = dp(8) })
+        answerScroll.setOnScrollChangeListener { _, _, _, _, _ -> updateToBottom() }
+        convo.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateToBottom() }
+
+        addView(answerFrame, if (mode == Mode.CARD)
             LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(14) }
         else
             LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply { topMargin = dp(14) })
@@ -424,6 +458,14 @@ class ChatView(
 
     // ------------------------------------------------------------------ 그리기
 
+    /** 맨 아래에서 멀어졌을 때만 ↓ 버튼을 보인다 */
+    private fun updateToBottom() {
+        val distance = convo.height - (answerScroll.scrollY + answerScroll.height)
+        val show = answerFrame.visibility == View.VISIBLE && distance > dp(60)
+        val v = if (show) View.VISIBLE else View.GONE
+        if (toBottom.visibility != v) toBottom.visibility = v
+    }
+
     private fun toggleInk(show: Boolean) {
         inkPanel.visibility = if (show) View.VISIBLE else View.GONE
         if (!show) return
@@ -543,12 +585,16 @@ class ChatView(
                 convo.removeAllViews()
                 entryViews.clear()
             }
-            answerScroll.visibility = if (mode == Mode.DOCKED) View.VISIBLE else View.GONE
+            answerFrame.visibility = if (mode == Mode.DOCKED) View.VISIBLE else View.GONE
             renderedCount = 0
             return
         }
-        answerScroll.visibility = View.VISIBLE
+        answerFrame.visibility = View.VISIBLE
 
+        // 이미 대화가 있는 화면을 새로 열면(연습장을 닫고 돌아온 경우 등) 최신 답변이 보이게 맨 아래로
+        if (entryViews.isEmpty() && renderedCount == 0 && entries.size > 1) {
+            answerScroll.post { answerScroll.scrollTo(0, convo.height) }
+        }
         // 대화가 새로 시작됐으면(줄었으면) 다시 만든다
         if (entryViews.size > entries.size) {
             convo.removeAllViews()
