@@ -320,9 +320,9 @@ class PracticePad(ctx: Context) : LinearLayout(ctx) {
         val session = ChatSession.get(context)
         session.attach(bmp, { bytes }, allowAutoAsk = false, mime = "image/png")
         val q = if (want.isNotEmpty())
-            "이 이미지는 내가 손으로 쓴 「$want」야. 모양·균형·비율이 자연스러운지, 빠지거나 잘못 붙은 획이 있는지 봐 주고, 부수와 구성도 짧게 알려 줘. 획순은 그림으로 알 수 없으니 이 한자에서 자주 틀리는 획순만 짚어 줘."
+            "This image is my handwritten 「$want」. Check whether the shape, balance, and proportions look natural and whether any strokes are missing or wrongly joined, and briefly give its radical and components. Stroke order cannot be seen in an image, so only point out the stroke-order mistakes commonly made with this kanji."
         else
-            "이 이미지는 내가 손으로 쓴 한자야. 무슨 글자인지 읽고, 모양·균형·빠진 획을 봐 준 뒤 부수와 구성을 짧게 알려 줘."
+            "This image is a kanji I wrote by hand. Tell me which character it is, check its shape, balance, and any missing strokes, then briefly give its radical and components."
         session.send(q, "내 글씨: ${want.ifEmpty { "?" }}")
         showAnswerSomewhere()
     }

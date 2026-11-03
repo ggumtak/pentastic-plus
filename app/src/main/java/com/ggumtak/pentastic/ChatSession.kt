@@ -97,6 +97,8 @@ class ChatSession private constructor(private val app: Context) {
         noticeIsError = false
         changed()
     }
+    // 답변 스레드(shouldStop)에서도 읽으므로 @Volatile: 멈춤·새 대화가 바로 보여야 스트림이 끊기고 토큰이 낭비되지 않는다
+    @Volatile
     private var generation = 0
 
     val isEmpty get() = entries.isEmpty() && pendingImage == null

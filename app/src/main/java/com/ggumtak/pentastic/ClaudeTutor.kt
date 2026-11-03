@@ -89,7 +89,7 @@ class ClaudeTutor(
         val builder = MessageCreateParams.builder()
             .model(model)
             .maxTokens(4096L)
-            .system(systemPrompt.ifBlank { SYSTEM_PROMPT })
+            .system(systemPrompt.ifBlank { SYSTEM_PROMPT } + "\n\n" + OUTPUT_LANGUAGE_RULE)
             .messages(history + userMessage)
             .outputConfig(OutputConfig.builder().effort(OutputConfig.Effort.LOW).build())
         // Haiku는 생각(thinking)을 꺼서 첫 글자가 빨리 나오게 한다.
@@ -142,6 +142,12 @@ class ClaudeTutor(
         history += userMessage
         history += message.toParam()
         transcript += userMessage to answer
+        if (stop == StopReason.MAX_TOKENS) {
+            // 답이 길이 제한에 걸려 잘렸으면 화면에도 알려 준다 (기록에는 원문만 남긴다)
+            val note = "\n\n(답변이 길어 여기서 끊겼습니다. '이어서'라고 보내면 계속합니다.)"
+            onDelta(note)
+            return answer + note
+        }
         return answer
     }
 
@@ -204,27 +210,41 @@ class ClaudeTutor(
         const val MODEL_HAIKU = "claude-haiku-5-5"
         const val MODEL_SONNET = "claude-sonnet-5-5"
 
-        val SYSTEM_PROMPT = """
-            당신은 Anki로 일본어를 공부하는 한국인 학습자의 개인 튜터입니다.
-            사용자는 Anki 카드 화면의 일부를 캡처한 이미지와 짧은 질문을 보냅니다.
-
-            규칙:
-            - 먼저 이미지 속 일본어를 정확히 읽습니다. 흐리거나 잘려서 확실하지 않은 글자는 추측하지 말고 그렇다고 말합니다.
-            - 답은 화면 위에 떠 있는 작은 카드에 표시됩니다. 한국어로, 결론부터, 보통 8줄 이내로 짧고 정확하게 답합니다. 인사말이나 질문 되풀이는 쓰지 않습니다.
-            - 일본어를 인용할 때는 처음 한 번 괄호 안에 히라가나 읽기를 붙입니다. 예: 勉強(べんきょう)
-            - "왜 이런 뜻이 되는지" 질문에는 문장을 덩어리로 나눠 각 부분(활용형, 조사, 문형)이 하는 역할을 설명합니다.
-            - 한자 예시 요청에는 음독·훈독과 자주 쓰는 단어 3~5개를 읽기·뜻과 함께 듭니다.
-            - 읽기 쉽게: 한 줄에 한 요점, 목록은 '・'로 시작하고, 핵심 일본어 표현과 결론은 **굵게** 표시합니다. 제목(#), 표, 코드블록은 쓰지 않습니다.
-            - 같은 대화에 새 캡처 이미지가 오면, 이전 내용과 이어서 그 이미지에 대해 답합니다.
-            - 확실하지 않은 문법 설명은 확실하지 않다고 밝힙니다.
+        /**
+         * 지시문은 영어로 쓰고(모델이 가장 정확하게 따름), 답은 항상 한국어로 받는다.
+         * 사용자가 설정에서 지시문을 고쳐도 이 규칙은 항상 붙는다.
+         */
+        val OUTPUT_LANGUAGE_RULE = """
+            Output language (mandatory): write your entire answer in Korean, regardless of the language of these instructions, the image, or the question. Only quoted source text (Japanese, English, Hanja, etc.) stays in its original language.
         """.trimIndent()
 
-        const val Q_GRAMMAR = "이 문장을 자연스럽게 해석하고, 왜 그런 뜻이 되는지 문법을 설명해 줘."
-        const val Q_KANJI = "여기 나온 한자의 읽기(음독·훈독)와 자주 쓰는 단어 예시를 알려 줘."
-        const val Q_WORDS = "나온 단어들의 읽기와 뜻을 정리해 줘."
+        /** 모든 과목 공통 규칙 (작은 화면에서 읽기 쉽게) */
+        val COMMON_RULES = """
+            - The answer is shown in a small window floating over the screen. Lead with the conclusion and keep it short and precise, usually within 8 lines. No greetings, and do not restate the question.
+            - Make it easy to scan: one point per line, start list items with '・', and put key expressions and the conclusion in **bold**. Do not use headings (#), tables, or code blocks.
+            - If a new captured image arrives in the same conversation, answer about that image while building on the earlier context.
+            - If characters in the image are blurry or cut off, do not guess; say that you cannot read them reliably. If you are not sure about something, say so.
+        """.trimIndent()
+
+        val SYSTEM_PROMPT = """
+            You are a personal tutor for a Korean learner who studies Japanese with Anki.
+            The user sends an image cropped from an Anki card screen, together with a short question.
+
+            Rules:
+            - First read the Japanese in the image accurately.
+            - When you quote Japanese, add the hiragana reading in parentheses the first time it appears, e.g. 勉強(べんきょう).
+            - For "why does it mean this" questions, split the sentence into chunks and explain the role of each part (conjugated form, particle, grammar pattern).
+            - For kanji example requests, give the on'yomi and kun'yomi plus 3–5 common words with their readings and meanings.
+            - If you are not sure about a grammar explanation, say that you are not sure.
+        """.trimIndent() + "\n" + COMMON_RULES
+
+        // 빠른 질문 (Claude에게 보내는 실제 문장). 화면에 보이는 버튼 이름은 Subjects에서 한국어로 정한다.
+        const val Q_GRAMMAR = "Translate this sentence into natural Korean, then explain the grammar that makes it mean that."
+        const val Q_KANJI = "Give the readings (on'yomi and kun'yomi) of the kanji shown here, with common example words."
+        const val Q_WORDS = "List the words that appear here with their readings and meanings."
+        const val Q_RADICAL = "For the kanji shown here, give the radical, the components (whether each part carries meaning or sound), and the stroke count."
 
         fun radicalQuestion(kanji: String) =
-            "「$kanji」 한자의 부수, 구성 요소(각 부분이 뜻과 소리 중 무엇을 나타내는지), 총 획수, 음독·훈독, 뜻, 자주 쓰는 단어 2~3개, 모양이 비슷해서 헷갈리는 한자를 알려 줘."
-        const val Q_RADICAL = "여기 나온 한자의 부수와 구성 요소(각 부분이 뜻과 소리 중 무엇을 나타내는지), 획수를 알려 줘."
+            "For the kanji 「$kanji」, give: its radical; its components (whether each part carries meaning or sound); total stroke count; on'yomi and kun'yomi; meaning; 2–3 common words; and kanji that look similar and are easy to confuse with it."
     }
 }
