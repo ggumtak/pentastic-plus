@@ -72,6 +72,8 @@ class ChatView(
         fun inputDone() {}
         /** 한자 연습장 열기 */
         fun openPractice() {}
+        /** CARD: '텍스트 선택' 판이 열려 있는 동안 글자를 고를 수 있게 창 포커스만 켠다 (키보드는 안 띄움) */
+        fun textSelecting(on: Boolean) {}
     }
 
     private val density = resources.displayMetrics.density
@@ -94,7 +96,11 @@ class ChatView(
     private val convo: LinearLayout
 
     /** 질문 하나에 해당하는 화면 조각. 답변이 흘러들어올 때 그 답변 글만 바꾼다. */
-    private class EntryViews(val root: LinearLayout, val answer: TextView, val retry: TextView) {
+    private class EntryViews(
+        val root: LinearLayout, val answer: TextView, val retry: TextView,
+        /** 답변 아래 [복사] [텍스트 선택] 줄 */
+        val tools: LinearLayout,
+    ) {
         var shownLen = -1
         var shownError: String? = null
     }
@@ -570,6 +576,8 @@ class ChatView(
             if (entryViews.isNotEmpty()) {
                 convo.removeAllViews()
                 entryViews.clear()
+                dismissMessageMenu()
+                closeSelectPanel()
             }
             answerFrame.visibility = if (mode == Mode.DOCKED) View.VISIBLE else View.GONE
             renderedCount = 0
@@ -585,6 +593,8 @@ class ChatView(
         if (entryViews.size > entries.size) {
             convo.removeAllViews()
             entryViews.clear()
+            dismissMessageMenu()
+            closeSelectPanel()
         }
         var newView: View? = null
         while (entryViews.size < entries.size) {
@@ -596,7 +606,10 @@ class ChatView(
         // 답변 글 갱신 (바뀐 것만)
         entries.forEachIndexed { i, e ->
             val ev = entryViews[i]
+            val streaming = session.busy && i == entries.lastIndex
             ev.retry.visibility = if (e.retryable && i == entries.lastIndex && !session.busy) View.VISIBLE else View.GONE
+            // 답이 다 온 뒤에만 [복사] [텍스트 선택]을 보인다
+            ev.tools.visibility = if (!streaming && e.raw.isNotEmpty()) View.VISIBLE else View.GONE
             if (ev.shownLen == e.raw.length && ev.shownError == e.error) return@forEachIndexed
             ev.shownLen = e.raw.length
             ev.shownError = e.error
@@ -654,8 +667,11 @@ class ChatView(
             setTextColor(c.text)
             setLineSpacing(dpf(1f), 1.3f)
             maxWidth = maxBubble - dp(28)
-            setTextIsSelectable(mode == Mode.DOCKED)
         }, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { gravity = Gravity.END })
+        // 내 질문 말풍선: 누르거나 길게 누르면 [복사] [텍스트 선택] [고쳐 묻기] 메뉴
+        // (빠른 질문 버튼으로 보낸 것은 화면에 보이는 버튼 이름과 실제 질문이 달라서 '고쳐 묻기'는 뺀다)
+        bubble.background = RippleDrawable(ColorStateList.valueOf(c.ripple), bubble.background, null)
+        messageMenuOn(bubble, editable = e.label == e.question, tap = true) { e.label }
         root.addView(bubble, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             gravity = Gravity.END
             topMargin = if (first) 0 else dp(20)
@@ -670,15 +686,232 @@ class ChatView(
             letterSpacing = 0.01f
             breakStrategy = android.text.Layout.BREAK_STRATEGY_HIGH_QUALITY
             hyphenationFrequency = android.text.Layout.HYPHENATION_FREQUENCY_NONE
-            setTextIsSelectable(mode == Mode.DOCKED)
             visibility = View.GONE
         }
+        // 답변 글을 길게 누르면 [복사] [텍스트 선택] 메뉴
+        messageMenuOn(answer, editable = false, tap = false) { answer.text.toString() }
         root.addView(answer, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             .apply { topMargin = dp(12) })
+        // 답변 아래 작은 [복사] [텍스트 선택] [↻ 다시 시도]
+        val tools = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            visibility = View.GONE
+        }
+        lateinit var copyBtn: TextView
+        copyBtn = toolButton("⧉ 복사") {
+            copyText(answer.text.toString())
+            flashDone(copyBtn, "⧉ 복사")
+        }
+        tools.addView(copyBtn)
+        tools.addView(toolButton("텍스트 선택") { openSelectPanel(answer.text.toString()) },
+            LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(4) })
+        root.addView(tools, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            .apply { topMargin = dp(4) })
         val retry = chip("↻ 다시 시도", primary = true) { session.retryLast() }.apply { visibility = View.GONE }
         root.addView(retry, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             .apply { topMargin = dp(8) })
-        return EntryViews(root, answer, retry)
+        return EntryViews(root, answer, retry, tools)
+    }
+
+    // ------------------------------------------------------------------ 말풍선 메뉴 · 텍스트 선택
+
+    /** 메뉴를 띄울 위치 (마지막으로 누른 곳, 화면 좌표) */
+    private var downRawX = 0f
+    private var downRawY = 0f
+    /** 대화 칸 위에 깔리는 메뉴 층 (바깥을 누르면 닫힌다) */
+    private var menuLayer: FrameLayout? = null
+    /** 대화 칸을 덮는 '텍스트 선택' 판 */
+    private var selectPanel: View? = null
+
+    /** 메시지를 길게 누르면(tap이면 그냥 눌러도) 메뉴를 띄운다. */
+    private fun messageMenuOn(target: View, editable: Boolean, tap: Boolean, text: () -> String) {
+        target.setOnTouchListener { _, e ->
+            if (e.actionMasked == MotionEvent.ACTION_DOWN) {
+                downRawX = e.rawX
+                downRawY = e.rawY
+            }
+            false
+        }
+        target.setOnLongClickListener { showMessageMenu(text(), editable); true }
+        if (tap) target.setOnClickListener { showMessageMenu(text(), editable) }
+    }
+
+    private fun showMessageMenu(text: String, editable: Boolean) {
+        dismissMessageMenu()
+        if (text.isBlank()) return
+        val menu = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4), dp(4), dp(4), dp(4))
+            background = GradientDrawable().apply {
+                cornerRadius = dpf(14f)
+                setColor(c.card)
+                setStroke(dp(1), c.stroke)
+            }
+            elevation = dpf(8f)
+        }
+        lateinit var copyItem: TextView
+        copyItem = menuItem("복사") {
+            copyText(text)
+            copyItem.text = "✓ 복사됨"
+            copyItem.postDelayed({ dismissMessageMenu() }, 500)
+        }
+        menu.addView(copyItem)
+        menu.addView(menuItem("텍스트 선택") {
+            dismissMessageMenu()
+            openSelectPanel(text)
+        })
+        if (editable) menu.addView(menuItem("고쳐 묻기") {
+            dismissMessageMenu()
+            editQuestion(text)
+        })
+        // 바깥(대화 칸 아무 데나)을 누르면 닫힌다
+        val layer = FrameLayout(context).apply {
+            setOnTouchListener { _, e ->
+                if (e.actionMasked == MotionEvent.ACTION_DOWN) dismissMessageMenu()
+                true
+            }
+        }
+        layer.addView(menu, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        answerFrame.addView(layer, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        menuLayer = layer
+        // 누른 곳 바로 위(자리가 없으면 아래)에, 대화 칸 안으로 들어오게
+        menu.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+        val loc = IntArray(2)
+        answerFrame.getLocationOnScreen(loc)
+        val w = menu.measuredWidth
+        val h = menu.measuredHeight
+        val m = dp(4)
+        val x = (downRawX - loc[0] - w / 2f).coerceIn(m.toFloat(), maxOf(m, answerFrame.width - w - m).toFloat())
+        var y = downRawY - loc[1] - h - dp(14)
+        if (y < m) y = downRawY - loc[1] + dp(18)
+        y = y.coerceIn(m.toFloat(), maxOf(m, answerFrame.height - h - m).toFloat())
+        menu.translationX = x
+        menu.translationY = y
+    }
+
+    private fun dismissMessageMenu() {
+        val l = menuLayer ?: return
+        menuLayer = null
+        answerFrame.removeView(l)
+    }
+
+    private fun menuItem(label: String, onClick: () -> Unit) = TextView(context).apply {
+        text = label
+        textSize = 14.5f
+        setTypeface(typeface, Typeface.BOLD)
+        setTextColor(c.text)
+        gravity = Gravity.CENTER
+        minHeight = dp(40)
+        setPadding(dp(14), 0, dp(14), 0)
+        background = RippleDrawable(ColorStateList.valueOf(c.ripple), null,
+            GradientDrawable().apply { cornerRadius = dpf(10f); setColor(Color.WHITE) })
+        setOnClickListener { onClick() }
+    }
+
+    /** 답변 아래 작은 글자 버튼 */
+    private fun toolButton(label: String, onClick: () -> Unit) = TextView(context).apply {
+        text = label
+        textSize = 12.5f
+        setTextColor(c.muted)
+        gravity = Gravity.CENTER
+        minHeight = dp(32)
+        setPadding(dp(10), 0, dp(10), 0)
+        background = RippleDrawable(ColorStateList.valueOf(c.ripple), null,
+            GradientDrawable().apply { cornerRadius = dpf(16f); setColor(Color.WHITE) })
+        setOnClickListener { onClick() }
+    }
+
+    /** 잠깐 '✓ 복사됨'으로 바꿨다가 되돌린다 */
+    private fun flashDone(v: TextView, original: String) {
+        v.text = "✓ 복사됨"
+        v.setTextColor(c.accent)
+        v.postDelayed({
+            v.text = original
+            v.setTextColor(c.muted)
+        }, 1500)
+    }
+
+    private fun copyText(text: String) {
+        val cm = context.getSystemService(android.content.ClipboardManager::class.java) ?: return
+        cm.setPrimaryClip(android.content.ClipData.newPlainText("펜스틱", text))
+        DebugLog.add("메시지 복사 (${text.length}자)")
+    }
+
+    /** 내 질문을 입력칸에 다시 넣어 고쳐서 보낼 수 있게 한다 */
+    private fun editQuestion(text: String) {
+        input.setText(text)
+        input.setSelection(input.text.length)
+        actions.inputTouched()
+        input.requestFocus()
+        input.post {
+            context.getSystemService(InputMethodManager::class.java)?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
+    /**
+     * 대화 칸을 덮는 '텍스트 선택' 판. 길게 눌러 원하는 부분만 골라 복사할 수 있다.
+     * (목록 안에서 바로 고르게 하면 길게 누르기가 메뉴와 겹치고 스크롤과도 부딪혀서 따로 연다)
+     */
+    private fun openSelectPanel(text: String) {
+        closeSelectPanel()
+        dismissMessageMenu()
+        if (text.isBlank()) return
+        // 떠 있는 카드는 평소 포커스를 받지 않는 창이라, 글자를 고를 수 있게 잠깐 포커스를 켠다
+        actions.textSelecting(true)
+        val panel = LinearLayout(context).apply {
+            orientation = VERTICAL
+            setPadding(dp(14), dp(8), dp(8), dp(8))
+            isClickable = true
+            background = GradientDrawable().apply {
+                cornerRadius = dpf(14f)
+                setColor(c.card)
+                setStroke(dp(2), c.accent)
+            }
+            elevation = dpf(6f)
+        }
+        val top = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        top.addView(TextView(context).apply {
+            this.text = "텍스트 선택 · 길게 눌러 고르세요"
+            textSize = 13f
+            setTextColor(c.muted)
+            isSingleLine = true
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }, LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        lateinit var allBtn: TextView
+        allBtn = toolButton("전체 복사") {
+            copyText(text)
+            flashDone(allBtn, "전체 복사")
+        }
+        top.addView(allBtn)
+        top.addView(iconButton("✕") { closeSelectPanel() })
+        panel.addView(top)
+        val body = TextView(context).apply {
+            this.text = text
+            textSize = 16.5f
+            setTextColor(c.text)
+            setLineSpacing(dpf(2f), 1.42f)
+            setPadding(0, dp(4), dp(6), dp(12))
+            setTextIsSelectable(true)
+        }
+        panel.addView(ScrollView(context).apply {
+            addView(body)
+            isVerticalScrollBarEnabled = true
+        }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        answerFrame.addView(panel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        selectPanel = panel
+        DebugLog.add("텍스트 선택 열림")
+    }
+
+    private fun closeSelectPanel() {
+        val p = selectPanel ?: return
+        selectPanel = null
+        answerFrame.removeView(p)
+        actions.textSelecting(false)
     }
 
     private fun emptyHint() = if (mode == Mode.DOCKED)

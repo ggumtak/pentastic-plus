@@ -100,6 +100,7 @@ class FloatingPanel(
                     if (!imeMode) setImeMode(true)
                 }
                 override fun inputDone() = setImeMode(false)
+                override fun textSelecting(on: Boolean) = setSelectFocus(on)
             },
         )
         window.addView(chat, FrameLayout.LayoutParams(panelWidth() - shadow * 2, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -236,6 +237,19 @@ class FloatingPanel(
     }
 
     // ------------------------------------------------------------------ 키보드
+
+    /** 키보드 없이 창 포커스만 켜고 끈다 (텍스트 선택용). 키보드 입력 중이면 그쪽 상태를 그대로 둔다. */
+    private fun setSelectFocus(on: Boolean) {
+        if (closed || imeMode) return
+        val flags = if (on) lp.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
+        else lp.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        if (flags == lp.flags) return
+        lp.flags = flags
+        try {
+            wm.updateViewLayout(window, lp)
+        } catch (_: Exception) {
+        }
+    }
 
     private fun setImeMode(on: Boolean) {
         if (closed || imeMode == on) return
