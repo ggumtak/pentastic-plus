@@ -63,6 +63,10 @@ class ChatSession private constructor(private val app: Context) {
     var waiting = false
         private set
 
+    /** 웹 검색 중이면 검색어 (아직 모르면 빈 문자열), 아니면 null */
+    var searching: String? = null
+        private set
+
     /** 답변 영역 위 안내 문구와 오류 여부 */
     var notice: String? = null
         private set
@@ -143,6 +147,7 @@ class ChatSession private constructor(private val app: Context) {
         inFlight = null
         busy = false
         waiting = false
+        searching = null
         notice = null
         noticeIsError = false
         changed()
@@ -157,6 +162,7 @@ class ChatSession private constructor(private val app: Context) {
         inFlight = null
         busy = false
         waiting = false
+        searching = null
         DebugLog.add("답변 멈춤")
         changed()
     }
@@ -184,6 +190,7 @@ class ChatSession private constructor(private val app: Context) {
         }
         if (e != null && chunk.isNotEmpty()) {
             waiting = false
+            searching = null
             e.raw.append(chunk)
             changed()
         }
@@ -211,6 +218,7 @@ class ChatSession private constructor(private val app: Context) {
             tutor = it
             tutorSubject = subj.id
         }
+        t.webSearch = prefs.webSearch
 
         val image = pendingImage
         val mime = pendingMime
@@ -232,7 +240,17 @@ class ChatSession private constructor(private val app: Context) {
         thread(name = "claude-ask") {
             var firstLogged = false
             try {
-                t.ask(image?.invoke(), mime, question, shouldStop = { gen != generation }) { delta ->
+                t.ask(image?.invoke(), mime, question, shouldStop = { gen != generation }, onSearch = { q ->
+                    main.post {
+                        if (gen != generation) return@post
+                        // 이미 받은 글이 화면에 다 나간 뒤에 '검색 중'을 보인다
+                        main.removeCallbacks(flush)
+                        flush.run()
+                        searching = q ?: searching ?: ""
+                        if (q != null) DebugLog.add("웹 검색: $q")
+                        changed()
+                    }
+                }) { delta ->
                     if (!firstLogged) {
                         firstLogged = true
                         DebugLog.add("첫 글자까지 ${System.currentTimeMillis() - started}ms")
@@ -256,6 +274,12 @@ class ChatSession private constructor(private val app: Context) {
                     inFlight = null
                     busy = false
                     waiting = false
+                    searching = null
+                    if (t.searchUnavailable) {
+                        notice = "이 API 키에서는 웹 검색이 꺼져 있어 검색 없이 답했습니다. (console.anthropic.com 설정에서 웹 검색을 허용하거나, ⚙ 설정에서 웹 검색을 끄세요)"
+                        noticeIsError = false
+                        DebugLog.add("웹 검색 사용 불가 → 검색 없이 답함")
+                    }
                     DebugLog.add("답변 완료 (${entry.raw.length}자, ${System.currentTimeMillis() - started}ms)")
                     changed()
                 }
@@ -277,6 +301,7 @@ class ChatSession private constructor(private val app: Context) {
         inFlight = null
         busy = false
         waiting = false
+        searching = null
         changed()
     }
 

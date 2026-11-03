@@ -14,12 +14,15 @@ import com.anthropic.helpers.MessageAccumulator
 import com.anthropic.models.messages.Base64ImageSource
 import com.anthropic.models.messages.ContentBlockParam
 import com.anthropic.models.messages.ImageBlockParam
+import com.anthropic.models.messages.Message
 import com.anthropic.models.messages.MessageCreateParams
 import com.anthropic.models.messages.MessageParam
 import com.anthropic.models.messages.OutputConfig
 import com.anthropic.models.messages.StopReason
 import com.anthropic.models.messages.TextBlockParam
 import com.anthropic.models.messages.ThinkingConfigDisabled
+import com.anthropic.models.messages.WebSearchTool20250305
+import com.anthropic.models.messages.WebSearchTool20260209
 import java.util.Base64
 
 /**
@@ -54,6 +57,14 @@ class ClaudeTutor(
     @Volatile
     var cancelled = false
 
+    /** 모르는 정보가 있을 때 Claude가 스스로 판단해 웹 검색을 쓸 수 있게 할지 */
+    @Volatile
+    var webSearch = false
+
+    /** 마지막 질문에서 이 API 키로 웹 검색을 쓸 수 없어 검색 없이 답했는지 */
+    var searchUnavailable = false
+        private set
+
     /**
      * 질문을 보내고 답변을 스트리밍으로 받는다. image가 있으면 이번 질문에 붙인다 (새 캡처).
      * 성공하면 history에 이번 질문과 답변을 추가한다.
@@ -65,6 +76,8 @@ class ClaudeTutor(
         imageMediaType: String,
         question: String,
         shouldStop: () -> Boolean = { cancelled },
+        /** 웹 검색을 시작할 때 null, 검색어를 알게 되면 그 검색어로 불린다 */
+        onSearch: (String?) -> Unit = {},
         onDelta: (String) -> Unit,
     ): String {
         val userContent = buildList {
@@ -86,63 +99,174 @@ class ClaudeTutor(
         }
         val userMessage = MessageParam.ofUserOfContentBlockParams(userContent)
 
+        searchUnavailable = false
+        var useSearch = webSearch && !searchBlocked
+        val answer = StringBuilder()
+        // 서버 검색이 한 번에 끝나지 않으면(pause_turn) 받은 데까지를 붙여 이어서 요청한다
+        val assistantTurns = mutableListOf<MessageParam>()
+        val sources = LinkedHashSet<String>()
+        var rounds = 0
+        while (true) {
+            val params = buildParams(history + userMessage + assistantTurns, useSearch)
+            val message = try {
+                streamOnce(params, shouldStop, answer, onSearch, onDelta) ?: return ""
+            } catch (e: BadRequestException) {
+                // 조직 설정에서 웹 검색이 꺼져 있는 등 검색 도구를 못 쓰면, 검색 없이 다시 묻는다
+                val msg = e.message ?: ""
+                if (useSearch && answer.isEmpty() && assistantTurns.isEmpty() &&
+                    (msg.contains("web_search", ignoreCase = true) || msg.contains("web search", ignoreCase = true))
+                ) {
+                    searchBlocked = true
+                    searchUnavailable = true
+                    useSearch = false
+                    continue
+                }
+                throw mapError(e)
+            } catch (e: AnthropicServiceException) {
+                throw mapError(e)
+            } catch (e: AnthropicIoException) {
+                throw mapError(e)
+            }
+            collectSources(message, sources)
+            val stop = message.stopReason().orElse(null)
+            if (stop == StopReason.REFUSAL) {
+                throw TutorException("Claude가 이 요청에 답하지 않았습니다. 질문을 바꿔 다시 시도해 주세요.")
+            }
+            assistantTurns += message.toParam()
+            if (stop == StopReason.PAUSE_TURN && rounds++ < 3) continue
+            break
+        }
+        // 검색해서 답했으면 끝에 출처(사이트 이름)를 짧게 붙인다
+        if (sources.isNotEmpty()) {
+            val tail = "\n\n🔎 출처: " + sources.take(4).joinToString(" · ")
+            answer.append(tail)
+            onDelta(tail)
+        }
+        history += userMessage
+        history += assistantTurns
+        val text = answer.toString()
+        transcript += userMessage to text
+        return text
+    }
+
+    private fun buildParams(messages: List<MessageParam>, useSearch: Boolean): MessageCreateParams {
+        val system = systemPrompt.ifBlank { SYSTEM_PROMPT }
         val builder = MessageCreateParams.builder()
             .model(model)
             .maxTokens(4096L)
-            .system(systemPrompt.ifBlank { SYSTEM_PROMPT })
-            .messages(history + userMessage)
+            .system(if (useSearch) system + "\n\n" + SEARCH_GUIDE else system)
+            .messages(messages)
             .outputConfig(OutputConfig.builder().effort(OutputConfig.Effort.LOW).build())
         // Haiku는 생각(thinking)을 꺼서 첫 글자가 빨리 나오게 한다.
         // Sonnet 5.5는 disabled를 받지 않으므로 기본(adaptive) + 낮은 effort로 둔다.
-        if (model.startsWith("claude-haiku")) {
+        val haiku = model.startsWith("claude-haiku")
+        if (haiku) {
             builder.thinking(ThinkingConfigDisabled.builder().build())
         }
+        if (useSearch) {
+            // 검색은 Claude가 필요하다고 판단할 때만 쓴다 (한 질문에 최대 3번).
+            // Haiku는 기본 검색, Sonnet은 결과를 걸러 읽는 새 검색을 쓴다.
+            if (haiku) builder.addTool(WebSearchTool20250305.builder().maxUses(MAX_SEARCHES).build())
+            else builder.addTool(WebSearchTool20260209.builder().maxUses(MAX_SEARCHES).build())
+        }
+        return builder.build()
+    }
 
+    /** 한 번 요청해서 답을 흘려받는다. 멈추면 null. */
+    private fun streamOnce(
+        params: MessageCreateParams,
+        shouldStop: () -> Boolean,
+        answer: StringBuilder,
+        onSearch: (String?) -> Unit,
+        onDelta: (String) -> Unit,
+    ): Message? {
         val accumulator = MessageAccumulator.create()
+        // 검색어는 조각(JSON)으로 흘러오므로 블록별로 모았다가 블록이 끝날 때 읽는다
+        val queries = HashMap<Long, StringBuilder>()
+        // 검색을 끼고 나뉜 글 사이에만 줄을 띄운다 (출처가 달린 글은 문장 중간에서도 블록이 나뉘므로)
+        var toolSinceText = false
+        val stream = client.messages().createStreaming(params)
         try {
-            val stream = client.messages().createStreaming(builder.build())
-            try {
-                for (raw in stream) {
-                    if (cancelled || shouldStop()) return ""
-                    val event = accumulator.accumulate(raw)
-                    event.contentBlockDelta().flatMap { d -> d.delta().text() }
-                        .ifPresent { t -> onDelta(t.text()) }
+            for (raw in stream) {
+                if (cancelled || shouldStop()) return null
+                val event = accumulator.accumulate(raw)
+                event.contentBlockStart().ifPresent { st ->
+                    val b = st.contentBlock()
+                    when {
+                        b.isServerToolUse() -> {
+                            toolSinceText = true
+                            queries[st.index()] = StringBuilder()
+                            onSearch(null)
+                        }
+                        b.isText() -> {
+                            if (toolSinceText && answer.isNotEmpty() && !answer.endsWith("\n")) {
+                                answer.append("\n\n")
+                                onDelta("\n\n")
+                            }
+                            toolSinceText = false
+                        }
+                        else -> if (!b.isThinking() && !b.isRedactedThinking()) toolSinceText = true
+                    }
                 }
-            } finally {
-                stream.close()
+                event.contentBlockDelta().ifPresent { d ->
+                    val delta = d.delta()
+                    delta.text().ifPresent { t ->
+                        answer.append(t.text())
+                        onDelta(t.text())
+                    }
+                    delta.inputJson().ifPresent { j -> queries[d.index()]?.append(j.partialJson()) }
+                }
+                event.contentBlockStop().ifPresent { st ->
+                    queries.remove(st.index())?.let { q -> onSearch(queryOf(q.toString())) }
+                }
             }
-        } catch (e: UnauthorizedException) {
-            throw TutorException("API 키가 올바르지 않습니다. 설정에서 키를 다시 확인해 주세요.", e)
-        } catch (e: PermissionDeniedException) {
-            throw TutorException("이 API 키로는 사용할 수 없습니다. (권한 없음)", e)
-        } catch (e: NotFoundException) {
-            throw TutorException("모델을 찾을 수 없습니다: $model", e)
-        } catch (e: RateLimitException) {
-            throw TutorException("요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.", e)
-        } catch (e: BadRequestException) {
+        } finally {
+            stream.close()
+        }
+        return accumulator.message()
+    }
+
+    private fun queryOf(json: String): String? = try {
+        com.anthropic.core.jsonMapper().readTree(json)?.get("query")?.asText()?.takeIf { it.isNotBlank() }
+    } catch (_: Exception) {
+        null
+    }
+
+    /** 답에 달린 웹 출처를 사이트 이름(도메인)으로 모은다 */
+    private fun collectSources(message: Message, out: MutableSet<String>) {
+        message.content().forEach { b ->
+            b.text().ifPresent { t ->
+                t.citations().ifPresent { list ->
+                    list.forEach { c ->
+                        c.webSearchResultLocation().ifPresent { w ->
+                            val host = try {
+                                java.net.URI(w.url()).host?.removePrefix("www.")
+                            } catch (_: Exception) {
+                                null
+                            }
+                            if (!host.isNullOrBlank()) out += host
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun mapError(e: Exception): TutorException = when (e) {
+        is UnauthorizedException -> TutorException("API 키가 올바르지 않습니다. 설정에서 키를 다시 확인해 주세요.", e)
+        is PermissionDeniedException -> TutorException("이 API 키로는 사용할 수 없습니다. (권한 없음)", e)
+        is NotFoundException -> TutorException("모델을 찾을 수 없습니다: $model", e)
+        is RateLimitException -> TutorException("요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.", e)
+        is BadRequestException -> {
             val msg = e.message ?: ""
             if (msg.contains("credit", ignoreCase = true)) {
-                throw TutorException("API 크레딧이 부족합니다. console.anthropic.com에서 충전해 주세요.", e)
-            }
-            throw TutorException("요청 오류: $msg", e)
-        } catch (e: InternalServerException) {
-            throw TutorException("Claude 서버 오류입니다. 잠시 후 다시 시도해 주세요.", e)
-        } catch (e: AnthropicServiceException) {
-            throw TutorException("API 오류 (${e.statusCode()}): ${e.message}", e)
-        } catch (e: AnthropicIoException) {
-            throw TutorException("인터넷 연결을 확인해 주세요.", e)
+                TutorException("API 크레딧이 부족합니다. console.anthropic.com에서 충전해 주세요.", e)
+            } else TutorException("요청 오류: $msg", e)
         }
-
-        val message = accumulator.message()
-        val answer = message.content().mapNotNull { b -> b.text().orElse(null)?.text() }.joinToString("")
-        val stop = message.stopReason().orElse(null)
-        if (stop == StopReason.REFUSAL) {
-            throw TutorException("Claude가 이 요청에 답하지 않았습니다. 질문을 바꿔 다시 시도해 주세요.")
-        }
-        history += userMessage
-        history += message.toParam()
-        transcript += userMessage to answer
-        return answer
+        is InternalServerException -> TutorException("Claude 서버 오류입니다. 잠시 후 다시 시도해 주세요.", e)
+        is AnthropicServiceException -> TutorException("API 오류 (${e.statusCode()}): ${e.message}", e)
+        is AnthropicIoException -> TutorException("인터넷 연결을 확인해 주세요.", e)
+        else -> TutorException("오류: ${e.message}", e)
     }
 
     /** 진행 중인 답변을 멈춘다. 공유 클라이언트는 닫지 않는다. */
@@ -200,6 +324,21 @@ class ClaudeTutor(
             } catch (_: Throwable) {
             }
         }
+
+        /** 한 질문에서 웹 검색을 최대 몇 번 쓸지 */
+        private const val MAX_SEARCHES = 3L
+
+        /** 이 API 키(조직)에서 웹 검색이 막혀 있으면 앱을 다시 켤 때까지 검색 없이 묻는다 */
+        @Volatile
+        private var searchBlocked = false
+
+        /** 웹 검색을 켰을 때 지시문 끝에 붙이는 안내. 검색은 꼭 필요할 때만 (느리고 비용이 든다). */
+        val SEARCH_GUIDE = """
+            웹 검색(web_search)을 쓸 수 있습니다. 다음 규칙으로 스스로 판단합니다.
+            - 이미지와 이미 아는 지식으로 확실하게 답할 수 있으면 검색하지 않습니다. 일반적인 문법·단어·한자 설명은 대부분 검색이 필요 없습니다.
+            - 최신 정보, 특정 인물·작품·회사·사건 같은 고유명사, 신조어·유행어, 시험 일정처럼 바뀔 수 있는 사실, 확실하지 않은 사실, 사용자가 찾아 달라고 한 경우에만 검색합니다.
+            - 검색하기 전에 "찾아보겠습니다" 같은 말은 쓰지 않습니다. 검색으로 확인한 내용은 답에 자연스럽게 녹이고, 출처 목록은 따로 쓰지 않습니다 (앱이 표시합니다).
+        """.trimIndent()
 
         const val MODEL_HAIKU = "claude-haiku-5-5"
         const val MODEL_SONNET = "claude-sonnet-5-5"

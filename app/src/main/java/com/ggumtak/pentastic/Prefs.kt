@@ -20,6 +20,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("auto_ask", false)
         set(v) = sp.edit().putBoolean("auto_ask", v).apply()
 
+    /** 모르는 정보가 있으면 Claude가 스스로 판단해 인터넷 검색 (기본: 켜짐) */
+    var webSearch: Boolean
+        get() = sp.getBoolean("web_search", true)
+        set(v) = sp.edit().putBoolean("web_search", v).apply()
+
     /** 지금 고른 과목 */
     var subjectId: String
         get() = sp.getString("subject", Subjects.JAPANESE.id) ?: Subjects.JAPANESE.id

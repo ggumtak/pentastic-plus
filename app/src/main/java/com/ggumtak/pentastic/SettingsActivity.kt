@@ -184,6 +184,16 @@ class SettingsActivity : Activity() {
         }, matchWrap())
         col.addView(body("켜면 버튼을 누르지 않아도 답이 바로 나옵니다. 끄면(기본) 버튼을 누르거나 직접 질문을 보내기 전에는 아무것도 전송되지 않습니다."))
 
+        // 인터넷 검색
+        col.addView(section("인터넷 검색"))
+        col.addView(Switch(this).apply {
+            text = "모르는 정보가 있으면 Claude가 알아서 인터넷 검색"
+            textSize = 15f
+            isChecked = prefs.webSearch
+            setOnCheckedChangeListener { _, on -> prefs.webSearch = on }
+        }, matchWrap())
+        col.addView(body("최신 정보·고유명사·확실하지 않은 사실처럼 필요할 때만 검색합니다. 보통의 문법·단어 질문은 검색하지 않습니다. 검색하면 답 끝에 '🔎 출처'가 붙습니다.\n비용: 검색 1번에 약 $0.01(약 14원)이 더 들고, 한 질문에 최대 3번까지 검색합니다. 검색하지 않은 질문은 비용이 그대로입니다."))
+
         // 4. 펜 버튼
         col.addView(section("4. 펜 버튼 길게 누르기에 연결"))
         col.addView(body("설정 → 유용한 기능 → S펜 → 에어 액션 → '펜 버튼 길게 누르기' → 앱 열기에서 '펜스틱'을 고릅니다.\n(메뉴 이름은 One UI 버전에 따라 조금 다를 수 있습니다. 에어 액션은 S펜이 충전되어 있어야 동작합니다.)"))

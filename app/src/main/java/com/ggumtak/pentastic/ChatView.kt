@@ -107,6 +107,7 @@ class ChatView(
 
     private val entryViews = mutableListOf<EntryViews>()
     private val statusRow: LinearLayout
+    private val statusText: TextView
     val input: EditText
     private val sendBtn: TextView
     /** ✍ 손글씨 칸이 채팅 안에 붙을 자리 (칸 자체는 InkDock이 관리) */
@@ -288,12 +289,15 @@ class ChatView(
         statusRow.addView(ProgressBar(ctx, null, android.R.attr.progressBarStyleSmall).apply {
             indeterminateTintList = ColorStateList.valueOf(c.accent)
         }, LayoutParams(dp(16), dp(16)))
-        statusRow.addView(TextView(ctx).apply {
+        statusText = TextView(ctx).apply {
             text = "읽는 중…"
             textSize = 13f
             setTextColor(c.muted)
             setPadding(dp(8), 0, 0, 0)
-        })
+            isSingleLine = true
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        statusRow.addView(statusText)
         addView(statusRow, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             .apply { topMargin = dp(10) })
 
@@ -563,7 +567,13 @@ class ChatView(
         caption.setTextColor(if (session.noticeIsError) c.error else c.muted)
         caption.visibility = if (notice == null) View.GONE else View.VISIBLE
 
-        statusRow.visibility = if (session.waiting) View.VISIBLE else View.GONE
+        val searching = session.searching
+        statusRow.visibility = if (session.waiting || searching != null) View.VISIBLE else View.GONE
+        statusText.text = when {
+            searching == null -> "읽는 중…"
+            searching.isEmpty() -> "🔎 인터넷 검색 중…"
+            else -> "🔎 인터넷 검색 중… “$searching”"
+        }
         chips.forEach {
             it.isEnabled = !session.busy
             it.alpha = if (session.busy) 0.45f else 1f
