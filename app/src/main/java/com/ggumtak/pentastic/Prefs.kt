@@ -47,4 +47,14 @@ class Prefs(context: Context) {
     }
 
     fun isCustomPrompt(s: Subject): Boolean = !sp.getString("system_prompt_${s.id}", null).isNullOrBlank()
+
+    /** 연습장: AI 챗과 쓰기 칸 자리 바꿈 */
+    var practiceSwap: Boolean
+        get() = sp.getBoolean("practice_swap", false)
+        set(v) = sp.edit().putBoolean("practice_swap", v).apply()
+
+    /** 연습장: 메뉴줄을 아래에 둘지 */
+    var practiceToolbarBottom: Boolean
+        get() = sp.getBoolean("practice_toolbar_bottom", false)
+        set(v) = sp.edit().putBoolean("practice_toolbar_bottom", v).apply()
 }

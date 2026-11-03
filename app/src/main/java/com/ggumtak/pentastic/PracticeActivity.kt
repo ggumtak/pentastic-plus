@@ -30,6 +30,13 @@ class PracticeActivity : Activity() {
     private lateinit var target: EditText
     private lateinit var result: TextView
     private var ghostOn = true
+    private val prefs by lazy { Prefs(this) }
+    private lateinit var pad: LinearLayout
+    private lateinit var chat: ChatView
+    private lateinit var divider: View
+    private lateinit var split: LinearLayout
+    private lateinit var topScroll: HorizontalScrollView
+    private lateinit var actionsScroll: HorizontalScrollView
     private var topCandidate: String? = null
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
@@ -83,14 +90,33 @@ class PracticeActivity : Activity() {
             }
             setPadding(dp(14), dp(6), dp(14), dp(6))
         }
-        top.addView(target, LinearLayout.LayoutParams(dp(160), ViewGroup.LayoutParams.WRAP_CONTENT))
-        pad.addView(top)
+        top.addView(target, LinearLayout.LayoutParams(dp(150), ViewGroup.LayoutParams.WRAP_CONTENT))
+        top.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+        fun topButton(label: String, onClick: () -> Unit) = top.addView(TextView(this).apply {
+            text = label
+            textSize = 15f
+            setTypeface(typeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setTextColor(c.text)
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            background = GradientDrawable().apply {
+                cornerRadius = 18f * resources.displayMetrics.density
+                setColor(c.soft)
+            }
+            setOnClickListener { onClick() }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(6) })
+        // 자리 바꾸기: 쓰기 칸 ↔ AI 챗,  메뉴줄 위 ↔ 아래,  닫기
+        topButton("⇄") { prefs.practiceSwap = !prefs.practiceSwap; arrange() }
+        topButton("⇅") { prefs.practiceToolbarBottom = !prefs.practiceToolbarBottom; arrange() }
+        topButton("✕ 닫기") { finish() }
+        topScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            isHorizontalFadingEdgeEnabled = true
+            isFillViewport = true
+            addView(top)
+        }
 
         ink = InkView(this, lineColor = c.stroke, inkColor = c.strong, guideColor = c.stroke, square = true)
-        pad.addView(ink, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply {
-            topMargin = dp(12)
-            gravity = Gravity.CENTER_HORIZONTAL
-        })
 
         // 결과 문구는 항상 2줄 높이로 고정 (문구 길이가 바뀌어도 쓰는 칸이 움직이지 않게)
         result = TextView(this).apply {
@@ -101,7 +127,6 @@ class PracticeActivity : Activity() {
             ellipsize = android.text.TextUtils.TruncateAt.END
             text = "칸에 한자를 써 보세요. 쓰는 대로 무슨 글자로 읽히는지 알려 드립니다.\n펜 버튼을 누른 채 그으면 지워집니다."
         }
-        pad.addView(result)
 
         val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         fun action(label: String, primary: Boolean = false, onClick: () -> Unit) {
@@ -134,11 +159,11 @@ class PracticeActivity : Activity() {
             if (k.isEmpty()) result.text = "연습할 한자를 적거나 먼저 써 주세요."
             else session.send(ClaudeTutor.radicalQuestion(k), "부수·구성: $k")
         }
-        pad.addView(HorizontalScrollView(this).apply {
+        actionsScroll = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             isHorizontalFadingEdgeEnabled = true
             addView(actions)
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
 
         target.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c2: Int) {}
@@ -151,19 +176,13 @@ class PracticeActivity : Activity() {
         ink.onStrokesChanged = { recognize() }
         updateGhost()
 
-        // 가로 화면: 연습 칸 | AI 챗,  세로 화면: 연습 칸 위, AI 챗 아래
-        val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        // 가로 화면: 연습 칸 | AI 챗,  세로 화면: 연습 칸 위, AI 챗 아래 (⇄로 자리 바꿈)
         val root = FloatingPanel.PanelFrame(this).apply { setBackgroundColor(c.card); fitsSystemWindows = true }
-        val split = LinearLayout(this).apply {
-            orientation = if (landscape) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
-        }
-        split.addView(pad, if (landscape) LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.1f)
-        else LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1.2f))
-        split.addView(View(this).apply { setBackgroundColor(c.stroke) }, if (landscape)
-            LinearLayout.LayoutParams(dp(1), ViewGroup.LayoutParams.MATCH_PARENT)
-        else LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)))
-        split.addView(chat, if (landscape) LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
-        else LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        this.pad = pad
+        this.chat = chat
+        divider = View(this).apply { setBackgroundColor(c.stroke) }
+        split = LinearLayout(this)
+        arrange()
         root.addView(split, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         setContentView(root)
         window.statusBarColor = c.card
@@ -181,6 +200,36 @@ class PracticeActivity : Activity() {
     override fun onStop() {
         ChatActivity.visibleExtra = false
         super.onStop()
+    }
+
+    /** 설정에 맞춰 쓰기 칸·AI 챗·메뉴줄을 배치한다 (그린 획과 대화는 그대로) */
+    private fun arrange() {
+        val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val bottomBar = prefs.practiceToolbarBottom
+        pad.removeAllViews()
+        if (!bottomBar) pad.addView(topScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        pad.addView(ink, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply {
+            topMargin = dp(if (bottomBar) 0 else 12)
+            gravity = Gravity.CENTER_HORIZONTAL
+        })
+        pad.addView(result)
+        pad.addView(actionsScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        if (bottomBar) pad.addView(topScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            .apply { topMargin = dp(10) })
+
+        split.removeAllViews()
+        split.orientation = if (landscape) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+        val padLp = if (landscape) LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.1f)
+        else LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1.2f)
+        val chatLp = if (landscape) LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
+        else LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        val divLp = if (landscape) LinearLayout.LayoutParams(dp(1), ViewGroup.LayoutParams.MATCH_PARENT)
+        else LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1))
+        if (prefs.practiceSwap) {
+            split.addView(chat, chatLp); split.addView(divider, divLp); split.addView(pad, padLp)
+        } else {
+            split.addView(pad, padLp); split.addView(divider, divLp); split.addView(chat, chatLp)
+        }
     }
 
     private fun updateGhost() {
