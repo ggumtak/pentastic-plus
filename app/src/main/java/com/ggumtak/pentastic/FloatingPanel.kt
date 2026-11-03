@@ -77,7 +77,6 @@ class FloatingPanel(
         window = PanelFrame(ctx).apply {
             setPadding(shadow, shadow, shadow, shadow)
             onBack = { if (imeMode) setImeMode(false) else close(resetSession = true) }
-            onStylusButton = { onRecapture() }
         }
         chat = ChatView(
             ctx, session, ChatView.Mode.CARD,

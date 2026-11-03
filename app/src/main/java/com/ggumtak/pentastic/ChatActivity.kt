@@ -35,9 +35,8 @@ class ChatActivity : Activity() {
 
             override fun openPractice() = PracticeActivity.open(this@ChatActivity)
         })
-        // 이 화면 위에서 S펜 버튼을 눌러도 다시 캡처
+        // (S펜 버튼은 쓰기 칸의 지우개로 쓰므로 여기서 가로채지 않는다)
         val frame = FloatingPanel.PanelFrame(this).apply {
-            onStylusButton = { CaptureService.instance?.requestCapture(CaptureService.RECAPTURE_DELAY_MS) }
             setBackgroundColor(chat.palette.card)
             fitsSystemWindows = true
             addView(chat, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
