@@ -21,7 +21,11 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
+import android.view.WindowInsets
+import android.view.WindowInsetsAnimation
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
@@ -101,6 +105,10 @@ class ChatView(
     private val sendBtn: TextView
     /** ✍ 손글씨 칸이 채팅 안에 붙을 자리 (칸 자체는 InkDock이 관리) */
     private val inkSlot: FrameLayout
+    /** inkSlot을 감싼 틀. 키보드가 올라와 있는 동안만 접어서 입력칸이 키보드 위에 보이게 한다. */
+    private val inkArea: FrameLayout
+    /** 지금 키보드가 올라와 있는지 (마지막으로 확인한 값) */
+    private var imeShown = false
     private val chips = mutableListOf<TextView>()
     private val chipRow: LinearLayout
     private val subjectRow: LinearLayout
@@ -333,9 +341,12 @@ class ChatView(
             .apply { topMargin = dp(10) })
 
         // ✍ 손글씨 칸 자리 (채팅과 구분되는 미색 카드. ⧉로 화면 위에 띄울 수도 있다)
+        // 키보드로 칠 때는 좁아진 화면을 손글씨 칸이 다 차지해 입력칸이 밀려나므로, 그동안만 바깥 틀(inkArea)을 접는다
         inkSlot = FrameLayout(ctx).apply { visibility = View.GONE }
-        addView(inkSlot, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        inkArea = FrameLayout(ctx)
+        inkArea.addView(inkSlot, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             .apply { topMargin = dp(12) })
+        addView(inkArea, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         // 직접 질문 입력줄
         val inputRow = LinearLayout(ctx).apply {
@@ -373,7 +384,7 @@ class ChatView(
             setTextColor(c.accent)
             background = RippleDrawable(ColorStateList.valueOf(c.ripple), null,
                 GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.WHITE) })
-            setOnClickListener { InkDock.toggleIn(inkSlot, inkHeight(), growsUp = mode == Mode.DOCKED) }
+            setOnClickListener { inkButton() }
         }, LayoutParams(dp(36), dp(36)).apply { marginEnd = dp(6) })
         inputRow.addView(input, LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         sendBtn = TextView(ctx).apply {
@@ -405,10 +416,13 @@ class ChatView(
         attachedViews.removeAll { it.get() == null || it.get() === this }
         attachedViews += java.lang.ref.WeakReference(this)
         session.addListener(listener)
+        viewTreeObserver.addOnGlobalLayoutListener(imeWatcher)
         render()
+        syncIme()
     }
 
     override fun onDetachedFromWindow() {
+        viewTreeObserver.removeOnGlobalLayoutListener(imeWatcher)
         attachedViews.removeAll { it.get() == null || it.get() === this }
         session.removeListener(listener)
         super.onDetachedFromWindow()
@@ -433,6 +447,51 @@ class ChatView(
     }
 
     private fun inkHeight() = dp(if (mode == Mode.DOCKED) 240 else 180)
+
+    // ------------------------------------------------------------------ 키보드
+
+    private val imeWatcher = ViewTreeObserver.OnGlobalLayoutListener { syncIme() }
+
+    init {
+        // 키보드가 다 올라오거나 다 내려간 뒤에도 한 번 더 확인 (창 크기가 안 바뀌는 경우 대비)
+        setWindowInsetsAnimationCallback(object : WindowInsetsAnimation.Callback(WindowInsetsAnimation.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
+            override fun onProgress(insets: WindowInsets, running: MutableList<WindowInsetsAnimation>) = insets
+            override fun onEnd(animation: WindowInsetsAnimation) = syncIme()
+        })
+    }
+
+    private fun isImeVisible(): Boolean = rootWindowInsets?.isVisible(WindowInsets.Type.ime()) == true
+
+    /**
+     * 키보드가 올라오면 손글씨 칸을 잠깐 접고(획은 그대로), 대화를 맨 아래로 내려 마지막 답과 입력칸이 함께 보이게 한다.
+     * 키보드가 내려가면 손글씨 칸을 다시 편다.
+     */
+    private fun syncIme() {
+        val shown = isImeVisible()
+        if (shown == imeShown) return
+        imeShown = shown
+        val v = if (shown) View.GONE else View.VISIBLE
+        if (inkArea.visibility != v) {
+            inkArea.visibility = v
+            if (inkSlot.visibility == View.VISIBLE) DebugLog.add(if (shown) "키보드 올라옴: 손글씨 칸 잠깐 접음" else "키보드 내려감: 손글씨 칸 다시 폄")
+        }
+        if (shown) answerScroll.post { answerScroll.scrollTo(0, convo.height) }
+    }
+
+    /** ✍ 버튼: 키보드로 치던 중이면 키보드를 내리고 손글씨 칸을 보여 준다. 아니면 열고 닫기. */
+    private fun inkButton() {
+        if (isImeVisible()) {
+            // 떠 있는 손글씨 창은 그대로 두고, 채팅 안에 없으면 여기에 편다
+            if (!InkDock.floating && inkSlot.visibility != View.VISIBLE) showInkDocked()
+            context.getSystemService(InputMethodManager::class.java)?.hideSoftInputFromWindow(input.windowToken, 0)
+            input.clearFocus()
+            // 키보드가 내려가는 것을 기다리지 않고 바로 편다
+            imeShown = false
+            inkArea.visibility = View.VISIBLE
+        } else {
+            InkDock.toggleIn(inkSlot, inkHeight(), growsUp = mode == Mode.DOCKED)
+        }
+    }
 
     /** 떠 있던 손글씨 칸을 이 채팅 안으로 돌려놓는다 */
     fun showInkDocked() = InkDock.showIn(inkSlot, inkHeight(), growsUp = mode == Mode.DOCKED)
