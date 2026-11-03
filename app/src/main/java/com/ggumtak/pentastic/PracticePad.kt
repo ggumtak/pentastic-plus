@@ -427,7 +427,7 @@ object PracticeDock {
         lateinit var frame: ResizableFrame
         var start = ResizableFrame.Box(0, 0, 0, 0)
         var bounds = usable
-        var chrome = chrome0
+        val chrome = chrome0
         // 가장자리·모서리 어디든 잡고 끌면 크기 조절 (너비 = 연습장 너비, 높이 = 쓰기 칸 높이)
         frame = ResizableFrame(
             svc, ResizableFrame.ALL,
@@ -437,7 +437,8 @@ object PracticeDock {
                 override fun onResizeStart() {
                     // 화면을 돌렸을 수도 있으니 잡을 때마다 다시 잰다
                     bounds = ResizableFrame.usableBounds(wm)
-                    chrome = p.height - p.ink.height
+                    // 쓰기 칸 외 높이는 띄울 때 잘리지 않은 원래 크기로 잰 값을 쓴다
+                    // (지금 창이 화면에 잘려 있으면 화면에서 잰 값이 틀리므로)
                     start = ResizableFrame.Box(params.x, params.y, p.width, p.ink.height)
                 }
 
