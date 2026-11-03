@@ -77,6 +77,7 @@ class ResizableFrame(
                 downX = ev.rawX
                 downY = ev.rawY
                 listener.onResizeStart()
+                DebugLog.add("크기 조절 시작 (변 $e)")
                 performHapticFeedback(HapticFeedbackConstants.GESTURE_START)
                 invalidate()
                 return true

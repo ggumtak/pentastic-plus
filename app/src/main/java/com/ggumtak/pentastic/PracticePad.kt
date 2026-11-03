@@ -500,6 +500,8 @@ object PracticeDock {
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     downX = e.rawX; downY = e.rawY; startX = params.x; startY = params.y
+                    // 메뉴줄은 옆으로 밀리는 스크롤 안에 있어서, 끄는 동안 스크롤이 터치를 가져가 끊기지 않게 막는다
+                    p.toolbar.parent?.requestDisallowInterceptTouchEvent(true)
                 }
                 MotionEvent.ACTION_MOVE -> {
                     params.x = (startX + (e.rawX - downX)).roundToInt()

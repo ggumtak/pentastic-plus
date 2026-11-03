@@ -299,6 +299,29 @@ object InkDock {
         holder.addView(p, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         slot.addView(holder, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         slot.visibility = View.VISIBLE
+        // 채팅 안에서는 '✍ 손글씨' 제목줄 아무 데나 잡고 위아래로 끌면 높이가 바뀐다 (바텀시트처럼)
+        var downY = 0f
+        var startInk = 0
+        p.header.setOnTouchListener { v, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downY = e.rawY
+                    startInk = p.ink.height
+                    v.parent?.requestDisallowInterceptTouchEvent(true)
+                    DebugLog.add("손글씨 칸 높이 조절 시작 (채팅 안)")
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dy = (e.rawY - downY).roundToInt()
+                    // 위로 늘어나는 곳(분할 화면 AI 챗)은 위로 끌면 커지고, 아래로 늘어나는 곳(카드)은 아래로 끌면 커진다
+                    val h = if (growsUp) startInk - dy else startInk + dy
+                    val maxH = (p.resources.displayMetrics.heightPixels * 0.7f).roundToInt()
+                    p.setInkHeight(h.coerceIn(dpx(p.context, 120), maxH))
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
+                    sp(p.context).edit().putInt("ink_dock_h", p.ink.height).apply()
+            }
+            true
+        }
         p.prepare()
     }
 
@@ -418,6 +441,8 @@ object InkDock {
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     downX = e.rawX; downY = e.rawY; startX = params.x; startY = params.y
+                    // 끄는 동안 다른 곳(스크롤 등)이 터치를 가로채 끊기지 않게
+                    p.header.parent?.requestDisallowInterceptTouchEvent(true)
                 }
                 MotionEvent.ACTION_MOVE -> {
                     params.x = (startX + (e.rawX - downX)).roundToInt()
