@@ -48,6 +48,7 @@ class InkPad(ctx: Context) : LinearLayout(ctx) {
     private val status: TextView
     private val candRow: LinearLayout
     private val floatBtn: TextView
+    private val resizeHandle: TextView
 
     init {
         orientation = VERTICAL
@@ -107,10 +108,40 @@ class InkPad(ctx: Context) : LinearLayout(ctx) {
         actions.addView(chip("지우기") { ink.clear() }, LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(8) })
         actions.addView(chip("부수·구성 묻기", strong = true) { askRadicals() })
-        addView(HorizontalScrollView(ctx).apply {
+        val bottom = LinearLayout(ctx).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        bottom.addView(HorizontalScrollView(ctx).apply {
             isHorizontalScrollBarEnabled = false
             addView(actions)
-        }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) })
+        }, LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        // 크기 조절 손잡이: 끌면 쓰는 칸 높이(떠 있을 때는 너비도)가 바뀐다
+        resizeHandle = TextView(ctx).apply {
+            text = "⇲"
+            textSize = 20f
+            gravity = Gravity.CENTER
+            setTextColor(muted)
+        }
+        bottom.addView(resizeHandle, LayoutParams(dp(40), dp(40)).apply { marginStart = dp(6) })
+        addView(bottom, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) })
+        var downX = 0f
+        var downY = 0f
+        var startW = 0
+        var startH = 0
+        resizeHandle.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = e.rawX; downY = e.rawY
+                    startW = width; startH = ink.height
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                }
+                MotionEvent.ACTION_MOVE ->
+                    InkDock.resize(this, startW + (e.rawX - downX).roundToInt(), startH + (e.rawY - downY).roundToInt())
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> InkDock.saveSize(this)
+            }
+            true
+        }
 
         ink.onStrokesChanged = { recognize() }
     }
@@ -216,6 +247,34 @@ object InkDock {
     var floating = false
         private set
 
+    private fun sp(ctx: Context) = ctx.applicationContext.getSharedPreferences("pentastic", Context.MODE_PRIVATE)
+
+    /** 크기 조절 손잡이로 끄는 중: 쓰는 칸 높이, 떠 있으면 창 너비도 */
+    fun resize(p: InkPad, width: Int, inkHeight: Int) {
+        val d = p.resources.displayMetrics.density
+        val screen = p.context.getSystemService(WindowManager::class.java).maximumWindowMetrics.bounds
+        p.setInkHeight(inkHeight.coerceIn((120 * d).roundToInt(), (screen.height() * 0.7f).roundToInt()))
+        if (floating) {
+            val w = width.coerceIn((300 * d).roundToInt(), screen.width() - (24 * d).roundToInt())
+            val lpPad = p.layoutParams
+            if (lpPad != null && lpPad.width != w) {
+                lpPad.width = w
+                p.layoutParams = lpPad
+            }
+        }
+    }
+
+    fun saveSize(p: InkPad) {
+        val e = sp(p.context).edit()
+        if (floating) {
+            e.putInt("ink_float_h", p.ink.height)
+            e.putInt("ink_float_w", p.width)
+        } else {
+            e.putInt("ink_dock_h", p.ink.height)
+        }
+        e.apply()
+    }
+
     private fun pad(ctx: Context): InkPad = pad ?: InkPad(ctx.applicationContext).also { pad = it }
 
     private fun detach(v: View) {
@@ -240,7 +299,7 @@ object InkDock {
         slot.tag = SLOT_TAG
         detach(p)
         p.setFloating(false)
-        p.setInkHeight(inkHeight)
+        p.setInkHeight(sp(slot.context).getInt("ink_dock_h", inkHeight))
         slot.addView(p, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         slot.visibility = View.VISIBLE
         p.prepare()
@@ -269,9 +328,12 @@ object InkDock {
         val d = svc.resources.displayMetrics.density
         val screen = wm.maximumWindowMetrics.bounds
         val shadow = (12 * d).roundToInt()
-        val width = minOf((440 * d).roundToInt(), screen.width() - (24 * d).roundToInt())
+        val width = minOf(
+            sp(ctx).getInt("ink_float_w", (440 * d).roundToInt() - shadow * 2) + shadow * 2,
+            screen.width() - (24 * d).roundToInt(),
+        )
         p.setFloating(true)
-        p.setInkHeight((260 * d).roundToInt())
+        p.setInkHeight(sp(ctx).getInt("ink_float_h", (260 * d).roundToInt()))
         val frame = FrameLayout(svc).apply {
             setPadding(shadow, shadow, shadow, shadow)
             addView(p, FrameLayout.LayoutParams(width - shadow * 2, ViewGroup.LayoutParams.WRAP_CONTENT))
