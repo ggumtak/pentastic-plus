@@ -427,7 +427,7 @@ class ChatView(
     private fun toggleInk(show: Boolean) {
         inkPanel.visibility = if (show) View.VISIBLE else View.GONE
         if (!show) return
-        inkStatus.text = "한자를 쓰면 아래에 후보가 나옵니다. 고르면 입력칸에 들어갑니다."
+        inkStatus.text = "한자를 쓰면 아래에 후보가 나옵니다 · 펜 버튼을 누른 채 그으면 지워집니다"
         Handwriting.prepare { err ->
             if (err != null) inkStatus.text = err
         }

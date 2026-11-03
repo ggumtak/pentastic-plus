@@ -99,7 +99,7 @@ class PracticeActivity : Activity() {
             setPadding(0, dp(10), 0, dp(4))
             setLines(2)
             ellipsize = android.text.TextUtils.TruncateAt.END
-            text = "칸에 한자를 써 보세요. 쓰는 대로 무슨 글자로 읽히는지 알려 드립니다."
+            text = "칸에 한자를 써 보세요. 쓰는 대로 무슨 글자로 읽히는지 알려 드립니다.\n펜 버튼을 누른 채 그으면 지워집니다."
         }
         pad.addView(result)
 

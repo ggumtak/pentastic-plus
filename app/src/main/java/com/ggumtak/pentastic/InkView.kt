@@ -45,6 +45,18 @@ class InkView(
 
     var onStrokesChanged: (() -> Unit)? = null
 
+    // 지우개: S펜 버튼을 누른 채(또는 펜 뒤쪽 지우개로) 그으면 닿는 획을 통째로 지운다
+    private var erasing = false
+    private var erasedAny = false
+    private var eraserX = 0f
+    private var eraserY = 0f
+    private val eraserRadius = 14f * density
+    private val eraserPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1.5f * density
+        color = 0x88888888.toInt()
+    }
+
     /** 따라 쓰기용 흐린 글자 (null이면 안 그림) */
     var ghost: String? = null
         set(v) {
@@ -111,11 +123,73 @@ class InkView(
         }
         paths.forEach { canvas.drawPath(it, inkPaint) }
         currentPath?.let { canvas.drawPath(it, inkPaint) }
+        if (erasing) canvas.drawCircle(eraserX, eraserY, eraserRadius, eraserPaint)
+    }
+
+    private fun isEraser(e: MotionEvent): Boolean =
+        e.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER ||
+            (e.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS &&
+                (e.buttonState and (MotionEvent.BUTTON_STYLUS_PRIMARY or MotionEvent.BUTTON_SECONDARY)) != 0)
+
+    /** (x, y) 근처를 지나는 획을 지운다 */
+    private fun eraseAt(x: Float, y: Float) {
+        eraserX = x
+        eraserY = y
+        val r2 = eraserRadius * eraserRadius
+        for (i in strokes.indices.reversed()) {
+            val pts = strokes[i]
+            var hit = false
+            for (k in pts.indices) {
+                val a = pts[k]
+                val b = if (k + 1 < pts.size) pts[k + 1] else a
+                if (distSqToSegment(x, y, a.x, a.y, b.x, b.y) <= r2) {
+                    hit = true
+                    break
+                }
+            }
+            if (hit) {
+                strokes.removeAt(i)
+                paths.removeAt(i)
+                erasedAny = true
+            }
+        }
+    }
+
+    private fun distSqToSegment(px: Float, py: Float, ax: Float, ay: Float, bx: Float, by: Float): Float {
+        val dx = bx - ax
+        val dy = by - ay
+        val len2 = dx * dx + dy * dy
+        val t = if (len2 == 0f) 0f else (((px - ax) * dx + (py - ay) * dy) / len2).coerceIn(0f, 1f)
+        val cx = ax + t * dx - px
+        val cy = ay + t * dy - py
+        return cx * cx + cy * cy
     }
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
         parent?.requestDisallowInterceptTouchEvent(true)
+        // 쓰는 도중에 펜 버튼을 누르면 그 획은 버리고 지우개로 바꾼다
+        if (!erasing && (e.actionMasked == MotionEvent.ACTION_DOWN || e.actionMasked == MotionEvent.ACTION_MOVE) && isEraser(e)) {
+            erasing = true
+            erasedAny = false
+            current = null
+            currentPath = null
+            main.removeCallbacks(notify)
+        }
+        if (erasing) {
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                    for (i in 0 until e.historySize) eraseAt(e.getHistoricalX(i), e.getHistoricalY(i))
+                    eraseAt(e.x, e.y)
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    erasing = false
+                    if (erasedAny) main.postDelayed(notify, 150)
+                }
+            }
+            invalidate()
+            return true
+        }
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 main.removeCallbacks(notify)
