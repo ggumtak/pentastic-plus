@@ -300,19 +300,27 @@ class ChatView(
         }
         ink = InkView(ctx, lineColor = c.stroke, inkColor = c.strong, guideColor = c.stroke)
         inkPanel.addView(ink, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(if (mode == Mode.DOCKED) 240 else 180)))
+        // 안내 문구와 후보 줄은 높이를 고정해서, 후보가 뜨고 사라져도 쓰는 칸이 움직이지 않게 한다
         inkStatus = TextView(ctx).apply {
             textSize = 12.5f
             setTextColor(c.muted)
-            setPadding(dp(2), dp(6), 0, 0)
+            setPadding(dp(2), 0, 0, 0)
+            gravity = Gravity.CENTER_VERTICAL
+            isSingleLine = true
+            ellipsize = android.text.TextUtils.TruncateAt.END
         }
-        inkPanel.addView(inkStatus)
-        candRow = LinearLayout(ctx).apply { orientation = HORIZONTAL }
+        inkPanel.addView(inkStatus, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(26)))
+        candRow = LinearLayout(ctx).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
         inkPanel.addView(HorizontalScrollView(ctx).apply {
             isHorizontalScrollBarEnabled = false
             isHorizontalFadingEdgeEnabled = true
             setFadingEdgeLength(dp(24))
-            addView(candRow)
-        }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) })
+            isFillViewport = true
+            addView(candRow, ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)))
         val inkActions = LinearLayout(ctx).apply { orientation = HORIZONTAL }
         inkActions.addView(chip("획 취소", primary = false) { ink.undo() }, LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(8) })
@@ -443,7 +451,14 @@ class ChatView(
                         input.append(cand)
                         ink.clear()
                         inkStatus.text = "입력칸: ${input.text}  ·  더 쓰거나 [부수·구성 묻기]"
-                    }.apply { textSize = 22f; setTypeface(Typeface.DEFAULT, Typeface.NORMAL); textLocale = java.util.Locale.JAPAN },
+                    }.apply {
+                        textSize = 22f
+                        setTypeface(Typeface.DEFAULT, Typeface.NORMAL)
+                        textLocale = java.util.Locale.JAPAN
+                        setPadding(dp(14), dp(2), dp(14), dp(2))
+                        gravity = Gravity.CENTER
+                        minWidth = dp(48)
+                    },
                         LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(6) })
                 }
             }

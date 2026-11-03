@@ -92,10 +92,13 @@ class PracticeActivity : Activity() {
             gravity = Gravity.CENTER_HORIZONTAL
         })
 
+        // 결과 문구는 항상 2줄 높이로 고정 (문구 길이가 바뀌어도 쓰는 칸이 움직이지 않게)
         result = TextView(this).apply {
             textSize = 15f
             setTextColor(c.text)
             setPadding(0, dp(10), 0, dp(4))
+            setLines(2)
+            ellipsize = android.text.TextUtils.TruncateAt.END
             text = "칸에 한자를 써 보세요. 쓰는 대로 무슨 글자로 읽히는지 알려 드립니다."
         }
         pad.addView(result)
