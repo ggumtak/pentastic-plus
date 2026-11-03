@@ -71,6 +71,7 @@ class CaptureService : AccessibilityService() {
         removeSelector()
         panel?.close(resetSession = false)
         InkDock.onServiceGone()
+        PracticeDock.onServiceGone()
     }
 
     // ------------------------------------------------------------------ 캡처
@@ -94,6 +95,7 @@ class CaptureService : AccessibilityService() {
         // 떠 있는 카드는 닫지 않고 잠시 감춘다. 새 캡처는 같은 카드(같은 자리, 같은 대화)에 붙는다.
         panel?.hideForCapture()
         InkDock.setCaptureHidden(true)
+        PracticeDock.setCaptureHidden(true)
         pending = true
         retried = false
         handler.postDelayed({ capture() }, delayMs)
@@ -116,6 +118,7 @@ class CaptureService : AccessibilityService() {
                     if (shot == null) {
                         panel?.reveal()
                 InkDock.setCaptureHidden(false)
+                PracticeDock.setCaptureHidden(false)
                         toast("화면 캡처에 실패했습니다.")
                         return
                     }
@@ -133,6 +136,7 @@ class CaptureService : AccessibilityService() {
                     pending = false
                     panel?.reveal()
                 InkDock.setCaptureHidden(false)
+                PracticeDock.setCaptureHidden(false)
                     toast("화면 캡처에 실패했습니다 (코드 $errorCode).")
                 }
             })
@@ -141,6 +145,7 @@ class CaptureService : AccessibilityService() {
             pending = false
             panel?.reveal()
                 InkDock.setCaptureHidden(false)
+                PracticeDock.setCaptureHidden(false)
             toast("화면 캡처를 시작하지 못했습니다: ${e.message}")
         }
     }
@@ -180,6 +185,7 @@ class CaptureService : AccessibilityService() {
                 releaseShot(shot)
                 panel?.reveal()
                 InkDock.setCaptureHidden(false)
+                PracticeDock.setCaptureHidden(false)
             },
         )
         val lp = WindowManager.LayoutParams(
@@ -209,6 +215,7 @@ class CaptureService : AccessibilityService() {
 
     private fun removeSelector() {
         InkDock.setCaptureHidden(false)
+                PracticeDock.setCaptureHidden(false)
         val v = selector ?: return
         selector = null
         try {
@@ -264,23 +271,34 @@ class CaptureService : AccessibilityService() {
                 DebugLog.add("→ 새 카드")
                 session.reset()
                 session.attach(img, { png.get() })
-                val p = FloatingPanel(
-                    ctx = this,
-                    session = session,
-                    selection = screenRect,
-                    onRecapture = { requestCapture(RECAPTURE_DELAY_MS) },
-                    onOpenSettings = {
-                        startActivity(
-                            Intent(this, SettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        )
-                    },
-                    onOpenDocked = { ChatActivity.open(this) },
-                    onClosed = { panel = null },
-                )
-                panel = p
-                p.show()
+                openCard(screenRect)
             }
         }
+    }
+
+    /** 대화 카드를 띄운다 (selection: 카드를 붙일 기준 영역) */
+    private fun openCard(selection: Rect) {
+        val p = FloatingPanel(
+            ctx = this,
+            session = ChatSession.get(this),
+            selection = selection,
+            onRecapture = { requestCapture(RECAPTURE_DELAY_MS) },
+            onOpenSettings = {
+                startActivity(
+                    Intent(this, SettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            },
+            onOpenDocked = { ChatActivity.open(this) },
+            onClosed = { panel = null },
+        )
+        panel = p
+        p.show()
+    }
+
+    /** 떠 있는 연습장 등에서 보낸 질문의 답을 보여줄 채팅이 없을 때, 그 옆에 대화 카드를 띄운다 */
+    fun showChatCard(anchor: Rect) {
+        if (panel != null || ChatActivity.visible) return
+        openCard(anchor)
     }
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
