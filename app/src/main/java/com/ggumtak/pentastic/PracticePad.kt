@@ -326,9 +326,9 @@ class PracticePad(ctx: Context) : LinearLayout(ctx) {
         val session = ChatSession.get(context)
         session.attach(bmp, { bytes }, allowAutoAsk = false, mime = "image/png")
         val q = if (want.isNotEmpty())
-            "This image is my handwritten 「$want」. Check whether the shape, balance, and proportions look natural and whether any strokes are missing or wrongly joined, and briefly give its radical and components. Stroke order cannot be seen in an image, so only point out the stroke-order mistakes commonly made with this kanji."
+            "This image is my handwritten 「$want」. Give feedback like a calligraphy teacher: first one thing that is done well, then the 1–2 most important fixes (shape, balance, proportions, missing or wrongly joined strokes), each as a concrete instruction I can apply on my next try. Then briefly give its radical and components. Stroke order cannot be seen in an image, so only mention the stroke-order mistakes people commonly make with this kanji. No 🎯 question."
         else
-            "This image is a kanji I wrote by hand. Tell me which character it is, check its shape, balance, and any missing strokes, then briefly give its radical and components."
+            "This image is a kanji I wrote by hand. Tell me which character it most likely is, then give feedback like a calligraphy teacher: one thing done well, then the 1–2 most important fixes as concrete instructions. Then briefly give its radical and components. No 🎯 question."
         session.send(q, "내 글씨: ${want.ifEmpty { "?" }}")
         showAnswerSomewhere()
     }
