@@ -373,7 +373,7 @@ class ChatView(
             setTextColor(c.accent)
             background = RippleDrawable(ColorStateList.valueOf(c.ripple), null,
                 GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.WHITE) })
-            setOnClickListener { InkDock.toggleIn(inkSlot, inkHeight()) }
+            setOnClickListener { InkDock.toggleIn(inkSlot, inkHeight(), growsUp = mode == Mode.DOCKED) }
         }, LayoutParams(dp(36), dp(36)).apply { marginEnd = dp(6) })
         inputRow.addView(input, LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         sendBtn = TextView(ctx).apply {
@@ -435,7 +435,7 @@ class ChatView(
     private fun inkHeight() = dp(if (mode == Mode.DOCKED) 240 else 180)
 
     /** 떠 있던 손글씨 칸을 이 채팅 안으로 돌려놓는다 */
-    fun showInkDocked() = InkDock.showIn(inkSlot, inkHeight())
+    fun showInkDocked() = InkDock.showIn(inkSlot, inkHeight(), growsUp = mode == Mode.DOCKED)
 
     fun appendInput(t: String) {
         input.append(t)

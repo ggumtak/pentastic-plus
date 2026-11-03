@@ -19,8 +19,8 @@ import kotlin.math.roundToInt
 @SuppressLint("ViewConstructor", "ClickableViewAccessibility")
 class ResizableFrame(
     ctx: Context,
-    /** 조절할 수 있는 변 (LEFT|TOP|RIGHT|BOTTOM 조합) */
-    private val edges: Int,
+    /** 조절할 수 있는 변 (LEFT|TOP|RIGHT|BOTTOM 조합). 붙는 곳에 따라 바꿀 수 있다. */
+    var edges: Int,
     /** 가장자리에서 이 거리 안을 누르면 크기 조절 */
     private val band: Int,
     /** 모서리는 이 거리 안이면 두 방향 동시 조절 (변보다 넓게 잡아 쉽게) */
@@ -38,6 +38,7 @@ class ResizableFrame(
     }
 
     private var active = 0
+    private var activeId = -1
     private var downX = 0f
     private var downY = 0f
     private val density = resources.displayMetrics.density
@@ -72,6 +73,7 @@ class ResizableFrame(
             val e = hit(ev.x, ev.y)
             if (e != 0) {
                 active = e
+                activeId = ev.getPointerId(0)
                 downX = ev.rawX
                 downY = ev.rawY
                 listener.onResizeStart()
@@ -87,9 +89,12 @@ class ResizableFrame(
         if (active == 0) return false
         when (ev.actionMasked) {
             MotionEvent.ACTION_MOVE -> {
+                // 처음 잡은 손가락/펜만 따라간다 (손바닥 등 다른 터치가 끼어도 튀지 않게)
+                val idx = ev.findPointerIndex(activeId)
+                if (idx < 0) return true
                 // 화면 기준 좌표(raw)로 계산해야 창이 움직여도 흔들리지 않는다
-                val dx = (ev.rawX - downX).roundToInt()
-                val dy = (ev.rawY - downY).roundToInt()
+                val dx = (ev.getRawX(idx) - downX).roundToInt()
+                val dy = (ev.getRawY(idx) - downY).roundToInt()
                 listener.onResize(
                     if (active and LEFT != 0) dx else 0,
                     if (active and TOP != 0) dy else 0,
@@ -97,13 +102,20 @@ class ResizableFrame(
                     if (active and BOTTOM != 0) dy else 0,
                 )
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                active = 0
-                listener.onResizeEnd()
-                invalidate()
+            MotionEvent.ACTION_POINTER_UP -> {
+                if (ev.getPointerId(ev.actionIndex) == activeId) finishResize()
             }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> finishResize()
         }
         return true
+    }
+
+    private fun finishResize() {
+        if (active == 0) return
+        active = 0
+        activeId = -1
+        listener.onResizeEnd()
+        invalidate()
     }
 
     override fun dispatchDraw(canvas: Canvas) {
@@ -125,6 +137,37 @@ class ResizableFrame(
         const val RIGHT = 4
         const val BOTTOM = 8
         const val ALL = LEFT or TOP or RIGHT or BOTTOM
+
+        /** 상태 표시줄·내비게이션 바를 뺀, 창이 실제로 쓸 수 있는 화면 영역 */
+        fun usableBounds(wm: android.view.WindowManager): android.graphics.Rect {
+            val m = wm.maximumWindowMetrics
+            val i = m.windowInsets.getInsetsIgnoringVisibility(android.view.WindowInsets.Type.systemBars())
+            val b = m.bounds
+            return android.graphics.Rect(b.left + i.left, b.top + i.top, b.right - i.right, b.bottom - i.bottom)
+        }
+
+        /**
+         * 화면 밖으로 나가지 않는 범위에서 크기 조절.
+         * start.w/h는 내용 크기(창 너비에서 extraW, 높이에서 extraH를 뺀 것), x/y는 창 위치.
+         * slack: 창이 화면 밖으로 나가도 되는 여유 (투명한 그림자 여백).
+         */
+        fun resizedWithin(
+            start: Box, dl: Int, dt: Int, dr: Int, db: Int,
+            minW: Int, minH: Int, extraW: Int, extraH: Int,
+            bounds: android.graphics.Rect, slack: Int,
+        ): Box {
+            val maxW = when {
+                dl != 0 -> start.x + start.w - (bounds.left - slack)
+                dr != 0 -> bounds.right + slack - start.x - extraW
+                else -> start.w
+            }
+            val maxH = when {
+                dt != 0 -> start.y + start.h - (bounds.top - slack)
+                db != 0 -> bounds.bottom + slack - start.y - extraH
+                else -> start.h
+            }
+            return resized(start, dl, dt, dr, db, minW, maxW, minH, maxH)
+        }
 
         fun resized(
             start: Box, dl: Int, dt: Int, dr: Int, db: Int,

@@ -274,22 +274,27 @@ object InkDock {
     }
 
     /** 채팅의 ✍ 버튼: 떠 있으면 닫고, 이 채팅에 붙어 있으면 닫고, 아니면 이 채팅에 붙인다. */
-    fun toggleIn(slot: FrameLayout, inkHeight: Int) {
+    /**
+     * growsUp: 채팅 화면(분할 화면·연습장)에서는 손글씨 칸 아래가 입력칸에 붙어 있어 위쪽 변이 움직이고,
+     * 떠 있는 카드에서는 카드가 아래로 늘어나 아래쪽 변이 움직인다. 실제로 손가락을 따라 움직이는 변만 잡을 수 있게 한다.
+     */
+    fun toggleIn(slot: FrameLayout, inkHeight: Int, growsUp: Boolean) {
         val p = pad(slot.context)
         when {
             floating -> close()
             p.parent === dockHolder && dockHolder?.parent === slot -> close()
-            else -> showIn(slot, inkHeight)
+            else -> showIn(slot, inkHeight, growsUp)
         }
     }
 
-    fun showIn(slot: FrameLayout, inkHeight: Int) {
+    fun showIn(slot: FrameLayout, inkHeight: Int, growsUp: Boolean) {
         val p = pad(slot.context)
         slot.tag = SLOT_TAG
         detach(p)
         p.setFloating(false)
         p.setInkHeight(sp(slot.context).getInt("ink_dock_h", inkHeight))
         val holder = dockHolder(slot.context)
+        holder.edges = if (growsUp) ResizableFrame.TOP else ResizableFrame.BOTTOM
         (holder.parent as? ViewGroup)?.removeView(holder)
         holder.addView(p, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         slot.addView(holder, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -319,16 +324,30 @@ object InkDock {
         val wm = svc.getSystemService(WindowManager::class.java)
         val d = svc.resources.displayMetrics.density
         val screen = wm.maximumWindowMetrics.bounds
+        // 상태 표시줄·내비게이션 바를 뺀 실제로 쓸 수 있는 영역 안에 창 전체가 들어오게 한다
+        val usable = ResizableFrame.usableBounds(wm)
         val shadow = (12 * d).roundToInt()
-        val frameW = minOf(
-            sp(ctx).getInt("ink_float_w", (440 * d).roundToInt() - shadow * 2) + shadow * 2,
-            screen.width() - (24 * d).roundToInt(),
-        )
+        val minW = (300 * d).roundToInt()
+        val minInk = (120 * d).roundToInt()
+        val padW = sp(ctx).getInt("ink_float_w", (440 * d).roundToInt() - shadow * 2)
+            .coerceIn(minW, maxOf(minW, usable.width()))
+        val frameW = padW + shadow * 2
         p.setFloating(true)
+        // 쓰는 칸 말고 나머지(제목줄·후보·버튼)가 차지하는 높이를 재서, 저장된 높이가 화면을 넘으면 줄인다
         p.setInkHeight(sp(ctx).getInt("ink_float_h", (260 * d).roundToInt()))
+        p.measure(
+            View.MeasureSpec.makeMeasureSpec(padW, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+        )
+        val chrome0 = p.measuredHeight - p.ink.layoutParams.height
+        val inkH0 = p.ink.layoutParams.height.coerceIn(minInk, maxOf(minInk, usable.height() - chrome0))
+        p.setInkHeight(inkH0)
+        val frameH0 = inkH0 + chrome0 + shadow * 2
         lateinit var params: WindowManager.LayoutParams
         lateinit var frame: ResizableFrame
         var start = ResizableFrame.Box(0, 0, 0, 0)
+        var bounds = usable
+        var chrome = chrome0
         // 가장자리·모서리 어디든 잡고 끌면 크기 조절 (너비 = 창 너비, 높이 = 쓰는 칸 높이)
         frame = ResizableFrame(
             svc, ResizableFrame.ALL,
@@ -336,14 +355,18 @@ object InkDock {
             outlineColor = ChatView.Palette.of(svc).accent,
             listener = object : ResizableFrame.Listener {
                 override fun onResizeStart() {
+                    // 화면을 돌렸을 수도 있으니 잡을 때마다 다시 잰다
+                    bounds = ResizableFrame.usableBounds(wm)
+                    chrome = p.height - p.ink.height
                     start = ResizableFrame.Box(params.x, params.y, p.width, p.ink.height)
                 }
 
                 override fun onResize(dLeft: Int, dTop: Int, dRight: Int, dBottom: Int) {
-                    val b = ResizableFrame.resized(
+                    val b = ResizableFrame.resizedWithin(
                         start, dLeft, dTop, dRight, dBottom,
-                        minW = (300 * d).roundToInt(), maxW = screen.width() - shadow * 2,
-                        minH = (120 * d).roundToInt(), maxH = (screen.height() * 0.75f).roundToInt(),
+                        minW = minW, minH = minInk,
+                        extraW = shadow * 2, extraH = chrome + shadow * 2,
+                        bounds = bounds, slack = shadow,
                     )
                     val lpPad = p.layoutParams
                     if (lpPad != null && lpPad.width != b.w) {
@@ -379,8 +402,10 @@ object InkDock {
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = if (lastX >= 0) lastX else screen.right - frameW - (16 * d).roundToInt()
-            y = if (lastY >= 0) lastY else (screen.height() * 0.3f).roundToInt()
+            x = (if (lastX >= 0) lastX else usable.right - frameW - (16 * d).roundToInt())
+                .coerceIn(usable.left - shadow, maxOf(usable.left - shadow, usable.right + shadow - frameW))
+            y = (if (lastY >= 0) lastY else usable.top + (usable.height() * 0.25f).roundToInt())
+                .coerceIn(usable.top - shadow, maxOf(usable.top - shadow, usable.bottom + shadow - frameH0))
             windowAnimations = android.R.style.Animation_Toast
         }
         // 제목줄을 잡고 끌면 창이 움직인다

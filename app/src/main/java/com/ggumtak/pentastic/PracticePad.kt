@@ -406,15 +406,28 @@ object PracticeDock {
         val wm = svc.getSystemService(WindowManager::class.java)
         val d = svc.resources.displayMetrics.density
         val screen = wm.maximumWindowMetrics.bounds
+        // 상태 표시줄·내비게이션 바를 뺀 실제로 쓸 수 있는 영역 안에 창 전체가 들어오게 한다
+        val usable = ResizableFrame.usableBounds(wm)
         val shadow = (12 * d).roundToInt()
+        val minW = (320 * d).roundToInt()
+        val minInk = (140 * d).roundToInt()
         val padW = sp(ctx).getInt("practice_float_w", (460 * d).roundToInt())
-            .coerceIn((320 * d).roundToInt(), screen.width() - (24 * d).roundToInt() - shadow * 2)
-        val inkH = sp(ctx).getInt("practice_float_ink_h", padW - (36 * d).roundToInt())
-            .coerceIn((140 * d).roundToInt(), (screen.height() * 0.75f).roundToInt())
-        p.layoutFor(floating = true, bottomBar = false, inkSide = inkH)
+            .coerceIn(minW, maxOf(minW, usable.width()))
+        p.layoutFor(floating = true, bottomBar = false, inkSide = sp(ctx).getInt("practice_float_ink_h", padW - (36 * d).roundToInt()))
+        // 쓰기 칸 말고 나머지(메뉴줄·결과·후보·버튼)가 차지하는 높이를 재서, 저장된 높이가 화면을 넘으면 줄인다
+        p.measure(
+            View.MeasureSpec.makeMeasureSpec(padW, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+        )
+        val chrome0 = p.measuredHeight - p.ink.layoutParams.height
+        val inkH = p.ink.layoutParams.height.coerceIn(minInk, maxOf(minInk, usable.height() - chrome0))
+        p.setInkSide(inkH)
+        val frameH0 = inkH + chrome0 + shadow * 2
         lateinit var params: WindowManager.LayoutParams
         lateinit var frame: ResizableFrame
         var start = ResizableFrame.Box(0, 0, 0, 0)
+        var bounds = usable
+        var chrome = chrome0
         // 가장자리·모서리 어디든 잡고 끌면 크기 조절 (너비 = 연습장 너비, 높이 = 쓰기 칸 높이)
         frame = ResizableFrame(
             svc, ResizableFrame.ALL,
@@ -422,14 +435,18 @@ object PracticeDock {
             outlineColor = ChatView.Palette.of(svc).accent,
             listener = object : ResizableFrame.Listener {
                 override fun onResizeStart() {
+                    // 화면을 돌렸을 수도 있으니 잡을 때마다 다시 잰다
+                    bounds = ResizableFrame.usableBounds(wm)
+                    chrome = p.height - p.ink.height
                     start = ResizableFrame.Box(params.x, params.y, p.width, p.ink.height)
                 }
 
                 override fun onResize(dLeft: Int, dTop: Int, dRight: Int, dBottom: Int) {
-                    val b = ResizableFrame.resized(
+                    val b = ResizableFrame.resizedWithin(
                         start, dLeft, dTop, dRight, dBottom,
-                        minW = (320 * d).roundToInt(), maxW = screen.width() - shadow * 2,
-                        minH = (140 * d).roundToInt(), maxH = (screen.height() * 0.75f).roundToInt(),
+                        minW = minW, minH = minInk,
+                        extraW = shadow * 2, extraH = chrome + shadow * 2,
+                        bounds = bounds, slack = shadow,
                     )
                     val lpPad = p.layoutParams
                     if (lpPad != null && lpPad.width != b.w) {
@@ -465,8 +482,11 @@ object PracticeDock {
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = if (lastX >= 0) lastX else (screen.width() - padW) / 2
-            y = if (lastY >= 0) lastY else (40 * d).roundToInt()
+            val frameW = padW + shadow * 2
+            x = (if (lastX >= 0) lastX else usable.left + (usable.width() - frameW) / 2)
+                .coerceIn(usable.left - shadow, maxOf(usable.left - shadow, usable.right + shadow - frameW))
+            y = (if (lastY >= 0) lastY else usable.top + (16 * d).roundToInt())
+                .coerceIn(usable.top - shadow, maxOf(usable.top - shadow, usable.bottom + shadow - frameH0))
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
             windowAnimations = android.R.style.Animation_Toast
         }
