@@ -248,8 +248,13 @@ class InkView(
         onStrokesChanged?.invoke()
     }
 
-    /** 쓴 글씨만 흰 바탕 정사각 이미지로 (AI에게 보여줄 때). 비어 있으면 null. */
-    fun toPng(maxSide: Int = 512): Pair<Bitmap, ByteArray>? {
+    /**
+     * 쓴 글씨만 흰 바탕 정사각 이미지로 (AI에게 보여줄 때). 비어 있으면 null.
+     * strokeNumbers가 켜져 있으면 각 획의 시작점에 빨간 점과 쓴 순서 번호(1, 2, 3…)를 찍는다.
+     * 그림 한 장으로는 획순·방향을 알 수 없어서, AI가 실제 획순을 보고 평가할 수 있게 하려는 것이다.
+     * 화면의 쓰기 칸에는 그리지 않는다.
+     */
+    fun toPng(maxSide: Int = 512, strokeNumbers: Boolean = false): Pair<Bitmap, ByteArray>? {
         if (strokes.isEmpty()) return null
         var l = Float.MAX_VALUE; var t = Float.MAX_VALUE; var r = -Float.MAX_VALUE; var bt = -Float.MAX_VALUE
         strokes.flatten().forEach { p ->
@@ -264,12 +269,48 @@ class InkView(
         val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
         c.drawColor(Color.WHITE)
+        c.save()
         c.scale(scale, scale)
         c.translate(side / 2 - cx, side / 2 - cy)
         val p = Paint(inkPaint).apply { color = Color.BLACK }
         paths.forEach { c.drawPath(it, p) }
+        c.restore()
+        if (strokeNumbers) drawStrokeNumbers(c, size, scale, side / 2 - cx, side / 2 - cy)
         val out = ByteArrayOutputStream()
         bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
         return bmp to out.toByteArray()
+    }
+
+    /** 획마다 시작점에 빨간 점 + 번호 (흰 테두리로 검은 획 위에서도 읽히게). 좌표는 이미지 픽셀 기준. */
+    private fun drawStrokeNumbers(c: Canvas, size: Int, scale: Float, dx: Float, dy: Float) {
+        val ts = max(12f, size * 0.045f)
+        val red = Color.rgb(0xE5, 0x39, 0x35)
+        val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = red }
+        val halo = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = ts
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            style = Paint.Style.STROKE
+            strokeWidth = ts * 0.22f
+            strokeJoin = Paint.Join.ROUND
+        }
+        val num = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = red
+            textSize = ts
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+        strokes.forEachIndexed { i, pts ->
+            val first = pts.firstOrNull() ?: return@forEachIndexed
+            val x = (first.x + dx) * scale
+            val y = (first.y + dy) * scale
+            c.drawCircle(x, y, ts * 0.22f, dot)
+            val label = (i + 1).toString()
+            val w = num.measureText(label)
+            // 시작점 왼쪽 위에 번호. 이미지 밖으로 나가면 안쪽으로 붙인다.
+            val tx = (x - w - ts * 0.25f).coerceIn(1f, size - w - 1f)
+            val ty = (y - ts * 0.25f).coerceIn(ts, size - 2f)
+            c.drawText(label, tx, ty, halo)
+            c.drawText(label, tx, ty, num)
+        }
     }
 }

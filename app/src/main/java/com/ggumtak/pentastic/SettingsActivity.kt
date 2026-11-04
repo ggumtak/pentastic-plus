@@ -130,7 +130,8 @@ class SettingsActivity : Activity() {
         })
 
         // 답변 방식 (프롬프트)
-        col.addView(section("과목별 답변 방식 (프롬프트)"))
+        val newerDefaults = Subjects.all.filter { prefs.hasNewerDefault(it) }
+        col.addView(section("과목별 답변 방식 (프롬프트)" + if (newerDefaults.isNotEmpty()) "  🆕" else ""))
         col.addView(body("과목마다 Claude에게 함께 보내는 지시문입니다. 과목을 고르고 고쳐 쓴 뒤 [저장]을 누르세요. 다음 질문부터 적용됩니다.\n예: '예문은 항상 2개씩', 'JLPT 급수도 알려 줘', '더 짧게'\n과목 자체는 카드나 AI 챗 위쪽의 과목 이름을 눌러 바꿉니다."))
         val subjectGroup = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
         Subjects.all.forEachIndexed { i, subj ->
@@ -235,7 +236,13 @@ class SettingsActivity : Activity() {
             else -> "상태: 꺼짐 — 아래 버튼으로 켜 주세요."
         }
         if (::promptStatus.isInitialized) {
-            promptStatus.text = "${editSubject.name}: " + if (prefs.isCustomPrompt(editSubject)) "직접 고친 프롬프트 사용 중" else "기본 프롬프트"
+            val newer = prefs.hasNewerDefault(editSubject)
+            promptStatus.text = "${editSubject.name}: " + when {
+                newer -> "직접 고친 프롬프트 사용 중\n🆕 새 기본 프롬프트가 나왔어요. 직접 고친 내용 대신 새 기본값을 쓰려면 [기본값으로 되돌리기]를 누르세요. (지금 내용을 다시 [저장]하면 이 안내는 사라집니다)"
+                prefs.isCustomPrompt(editSubject) -> "직접 고친 프롬프트 사용 중"
+                else -> "기본 프롬프트"
+            }
+            promptStatus.setTextColor(if (newer) 0xFFD84315.toInt() else a11yStatus.currentTextColor)
         }
         val k = prefs.apiKey
         keyStatus.text = if (k.isBlank()) "상태: 키 없음"

@@ -316,7 +316,8 @@ class PracticePad(ctx: Context) : LinearLayout(ctx) {
     }
 
     private fun askReview() {
-        val png = ink.toPng()
+        // AI에게 보내는 그림에만 획 시작점 번호를 찍는다 (실제 획순을 보고 평가하게). 화면의 쓰기 칸은 그대로.
+        val png = ink.toPng(strokeNumbers = true)
         if (png == null) {
             result.text = "먼저 칸에 한자를 써 주세요."
             return
@@ -325,10 +326,7 @@ class PracticePad(ctx: Context) : LinearLayout(ctx) {
         val (bmp, bytes) = png
         val session = ChatSession.get(context)
         session.attach(bmp, { bytes }, allowAutoAsk = false, mime = "image/png")
-        val q = if (want.isNotEmpty())
-            "This image is my handwritten 「$want」. Give feedback like a calligraphy teacher: first one thing that is done well, then the 1–2 most important fixes (shape, balance, proportions, missing or wrongly joined strokes), each as a concrete instruction I can apply on my next try. Then briefly give its radical and components. Stroke order cannot be seen in an image, so only mention the stroke-order mistakes people commonly make with this kanji. No 🎯 question."
-        else
-            "This image is a kanji I wrote by hand. Tell me which character it most likely is, then give feedback like a calligraphy teacher: one thing done well, then the 1–2 most important fixes as concrete instructions. Then briefly give its radical and components. No 🎯 question."
+        val q = if (want.isNotEmpty()) reviewKnown(want) else REVIEW_UNKNOWN
         session.send(q, "내 글씨: ${want.ifEmpty { "?" }}")
         showAnswerSomewhere()
     }
@@ -608,3 +606,26 @@ object PracticeDock {
         if (floating) removeWindow()
     }
 }
+
+
+/** 손글씨 평가 (목표 한자를 알 때). 그림의 빨간 번호 = 실제로 쓴 획순. */
+internal fun reviewKnown(want: String) = """
+    This image is my handwritten kanji 「$want」. The small red numbers with dots mark where each of my strokes started, in the order I actually wrote them (1, 2, 3…); they are an overlay, not part of the character. Review it like a warm, sharp calligraphy tutor:
+    - Line 1 (bold): overall impression and 1 specific thing done well.
+    - Then the 1–2 most important fixes (stroke proportions, center of gravity, angles, or endings like 삐침/갈고리) as concrete visual tips I can apply right away.
+    - Stroke order: compare my numbered order with the correct order and name any stroke written out of order or started from the wrong end. If it is all correct, say so in one line.
+    - Form check: tell me if I wrote the Korean traditional form (정자체) instead of the Japanese shinjitai (신자체), or missed a well-known form trap (e.g. 歩 vs 步, 黒 vs 黑, 発 vs 發, 図 vs 圖, 聴 vs 聽).
+    - Finally, 1–2 lines on its component breakdown (with hiragana reading in parentheses).
+    No 🎯 question.
+""".trimIndent()
+
+/** 손글씨 평가 (목표 한자 없이 쓴 글씨). 그림의 빨간 번호 = 실제로 쓴 획순. */
+internal val REVIEW_UNKNOWN = """
+    This image is a kanji I wrote by hand. The small red numbers with dots mark where each of my strokes started, in the order I actually wrote them (1, 2, 3…); they are an overlay, not part of the character.
+    - Line 1 (bold): identify which kanji it most likely is (with Korean 훈음 and Japanese hiragana reading in parentheses). If ambiguous between 2 characters, name both.
+    - Give 1 thing done well, then the 1–2 most important shape/balance fixes as concrete instructions for my next try.
+    - Stroke order: compare my numbered order with the correct order and name any stroke out of order or started from the wrong end.
+    - Form check: tell me if it looks like the Korean traditional form (정자체) rather than the Japanese shinjitai (신자체), or misses a well-known form trap (e.g. 歩 vs 步, 黒 vs 黑, 発 vs 發, 図 vs 圖, 聴 vs 聽).
+    - Briefly show its radical/components and how to tell it apart from its closest look-alike kanji.
+    No 🎯 question.
+""".trimIndent()

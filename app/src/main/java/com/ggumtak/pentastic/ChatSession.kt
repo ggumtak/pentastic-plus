@@ -273,7 +273,7 @@ class ChatSession private constructor(private val app: Context) {
                     inFlight = null
                     busy = false
                     waiting = false
-                    DebugLog.add("답변 완료 (${entry.raw.length}자, ${System.currentTimeMillis() - started}ms)")
+                    DebugLog.add("답변 완료 (${entry.raw.length}자, ${System.currentTimeMillis() - started}ms, ${t.lastUsage ?: "사용량 모름"})")
                     changed()
                 }
             } catch (e: ClaudeTutor.TutorException) {

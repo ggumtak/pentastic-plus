@@ -73,7 +73,10 @@ class ChatView(
     private val density = resources.displayMetrics.density
     val palette = Palette.of(ctx)
     private val c = palette
-    private val renderer = AnswerRenderer(density, c.strong, c.accent)
+    private val renderer = AnswerRenderer(
+        density, c.strong, c.accent,
+        headingColor = c.accent, mutedColor = c.muted, boldHighlight = c.highlight,
+    )
     private val prefs = Prefs(ctx)
 
     /** 끌어서 카드를 옮길 때 잡는 부분 (CARD 모드) */
@@ -609,7 +612,8 @@ class ChatView(
         val answer = TextView(context).apply {
             textSize = if (mode == Mode.DOCKED) 16.5f else 16f
             setTextColor(c.text)
-            setLineSpacing(dpf(2f), 1.42f)
+            // 한 항목 안에서 꺾인 줄은 1.3배로 촘촘하게, 항목 사이 간격은 AnswerRenderer가 더한다
+            setLineSpacing(0f, 1.3f)
             letterSpacing = 0.01f
             breakStrategy = android.text.Layout.BREAK_STRATEGY_HIGH_QUALITY
             hyphenationFrequency = android.text.Layout.HYPHENATION_FREQUENCY_NONE
@@ -703,6 +707,8 @@ class ChatView(
         val accent: Int, val accentSoft: Int, val onAccentSoft: Int, val ripple: Int, val error: Int,
         /** 내가 보낸 질문 말풍선 배경 */
         val bubble: Int,
+        /** 답변 속 굵은 글씨 뒤 형광펜 (0 = 없음) */
+        val highlight: Int,
     ) {
         companion object {
             fun of(ctx: Context): Palette {
@@ -715,6 +721,8 @@ class ChatView(
                     accent = 0xFF9AA3FF.toInt(), accentSoft = 0xFF2E3354.toInt(),
                     onAccentSoft = 0xFFD0D4FF.toInt(), ripple = 0x33FFFFFF, error = 0xFFFF8A65.toInt(),
                     bubble = 0xFF2F3038.toInt(),
+                    // 다크 모드는 흰 굵은 글씨가 본문(연회색)과 이미 잘 구분된다
+                    highlight = 0,
                 ) else Palette(
                     card = 0xFFFFFFFF.toInt(), stroke = 0xFFE4E4EA.toInt(),
                     text = 0xFF26262C.toInt(), strong = 0xFF0B0B10.toInt(),
@@ -722,6 +730,8 @@ class ChatView(
                     accent = 0xFF4552CC.toInt(), accentSoft = 0xFFE8EAFC.toInt(),
                     onAccentSoft = 0xFF2F3BAA.toInt(), ripple = 0x22000000, error = 0xFFD84315.toInt(),
                     bubble = 0xFFEFEFF3.toInt(),
+                    // 라이트 모드: 굵은 글씨가 본문과 색이 거의 같아서 연한 노란 형광펜(약 19%)을 깐다
+                    highlight = 0x30FFC107,
                 )
             }
         }
