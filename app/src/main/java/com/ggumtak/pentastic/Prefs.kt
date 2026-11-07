@@ -75,6 +75,12 @@ class Prefs(context: Context) {
     fun hasNewerDefault(s: Subject): Boolean =
         isCustomPrompt(s) && sp.getInt("system_prompt_ver_${s.id}", 0) < PROMPT_DEFAULTS_VERSION
 
+    /** 손글씨 획 굵기 단계 (InkView.WIDTH_NAMES 순서). 칸마다 따로: "pad"(✍ 손글씨), "practice"(연습장) */
+    fun inkWidthLevel(pad: String): Int =
+        sp.getInt("ink_width_$pad", InkView.DEFAULT_WIDTH_LEVEL).coerceIn(0, InkView.WIDTH_NAMES.lastIndex)
+
+    fun setInkWidthLevel(pad: String, level: Int) = sp.edit().putInt("ink_width_$pad", level).apply()
+
     /** 연습장: AI 챗과 쓰기 칸 자리 바꿈 */
     var practiceSwap: Boolean
         get() = sp.getBoolean("practice_swap", false)

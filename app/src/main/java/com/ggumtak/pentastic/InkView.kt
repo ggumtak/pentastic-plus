@@ -74,10 +74,18 @@ class InkView(
     private val inkPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = inkColor
         style = Paint.Style.STROKE
-        strokeWidth = (if (square) 7f else 5f) * density
+        strokeWidth = widthsFor(square)[DEFAULT_WIDTH_LEVEL] * density
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
+
+    /** 획 굵기 단계 (0 아주 가늘게 … 4 아주 굵게). 바꾸면 이미 쓴 획도 새 굵기로 다시 그린다. */
+    var widthLevel: Int = DEFAULT_WIDTH_LEVEL
+        set(v) {
+            field = v.coerceIn(0, WIDTH_NAMES.lastIndex)
+            inkPaint.strokeWidth = widthsFor(square)[field] * density
+            invalidate()
+        }
     private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = lineColor
         style = Paint.Style.STROKE
@@ -272,7 +280,8 @@ class InkView(
         c.save()
         c.scale(scale, scale)
         c.translate(side / 2 - cx, side / 2 - cy)
-        val p = Paint(inkPaint).apply { color = Color.BLACK }
+        // 아주 가늘게 써도 AI가 모양을 읽을 수 있게, 이미지에서 최소 3px은 되게 한다
+        val p = Paint(inkPaint).apply { color = Color.BLACK; strokeWidth = max(inkPaint.strokeWidth, 3f / scale) }
         paths.forEach { c.drawPath(it, p) }
         c.restore()
         if (strokeNumbers) drawStrokeNumbers(c, size, scale, side / 2 - cx, side / 2 - cy)
@@ -312,5 +321,18 @@ class InkView(
             c.drawText(label, tx, ty, halo)
             c.drawText(label, tx, ty, num)
         }
+    }
+
+    companion object {
+        /** 획 굵기 단계 이름 (버튼에 보이는 글자) */
+        val WIDTH_NAMES = listOf("아주 가늘게", "가늘게", "보통", "굵게", "아주 굵게")
+        /** 기본은 '보통'. 예전 기본 굵기(손글씨 칸 5dp, 연습장 7dp)보다 가늘다. */
+        const val DEFAULT_WIDTH_LEVEL = 2
+
+        /** 단계별 굵기(dp). 손글씨 칸 보통 3.5dp, 연습장(큰 칸) 보통 4.5dp. 예전 굵기는 '굵게'~'아주 굵게' 사이. */
+        private val PAD_WIDTHS_DP = floatArrayOf(2f, 2.75f, 3.5f, 4.5f, 5.5f)
+        private val PRACTICE_WIDTHS_DP = floatArrayOf(2.5f, 3.5f, 4.5f, 6f, 7.5f)
+
+        private fun widthsFor(square: Boolean) = if (square) PRACTICE_WIDTHS_DP else PAD_WIDTHS_DP
     }
 }

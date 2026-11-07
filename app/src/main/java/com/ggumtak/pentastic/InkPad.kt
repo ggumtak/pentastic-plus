@@ -84,6 +84,7 @@ class InkPad(ctx: Context) : LinearLayout(ctx) {
         addView(header)
 
         ink = InkView(ctx, lineColor = paperStroke, inkColor = inkColor, guideColor = paperStroke)
+        ink.widthLevel = Prefs(ctx).inkWidthLevel("pad")
         addView(ink, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(220)).apply { topMargin = dp(6) })
 
         // 안내 문구·후보 줄은 높이 고정 (쓰는 칸이 움직이지 않게)
@@ -111,6 +112,8 @@ class InkPad(ctx: Context) : LinearLayout(ctx) {
         actions.addView(chip("획 취소") { ink.undo() }, LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(8) })
         actions.addView(chip("지우기") { ink.clear() }, LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(8) })
+        actions.addView(widthChip(), LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(8) })
         actions.addView(chip("부수·구성 묻기", strong = true) { askRadicals() })
         addView(HorizontalScrollView(ctx).apply {
@@ -179,6 +182,17 @@ class InkPad(ctx: Context) : LinearLayout(ctx) {
                 }
             }
         }
+    }
+
+    /** 누를 때마다 획 굵기를 한 단계씩 바꾼다 (아주 가늘게 → … → 아주 굵게 → 다시 아주 가늘게). 고른 굵기는 기억한다. */
+    private fun widthChip(): TextView {
+        lateinit var b: TextView
+        b = chip("굵기: ${InkView.WIDTH_NAMES[ink.widthLevel]}") {
+            ink.widthLevel = (ink.widthLevel + 1) % InkView.WIDTH_NAMES.size
+            Prefs(context).setInkWidthLevel("pad", ink.widthLevel)
+            b.text = "굵기: ${InkView.WIDTH_NAMES[ink.widthLevel]}"
+        }
+        return b
     }
 
     /** 채팅 입력칸의 한자(비어 있으면 가장 그럴듯한 후보)에 대해 부수·구성을 묻는다. */

@@ -104,6 +104,7 @@ class PracticePad(ctx: Context) : LinearLayout(ctx) {
         }
 
         ink = InkView(ctx, lineColor = c.stroke, inkColor = c.strong, guideColor = c.stroke, square = true)
+        ink.widthLevel = Prefs(ctx).inkWidthLevel("practice")
 
         // 결과 문구는 항상 2줄 높이 (문구 길이가 바뀌어도 쓰는 칸이 움직이지 않게)
         result = TextView(ctx).apply {
@@ -138,6 +139,12 @@ class PracticePad(ctx: Context) : LinearLayout(ctx) {
         }
         action("획 취소") { ink.undo() }
         action("지우기") { ink.clear() }
+        // 누를 때마다 획 굵기를 한 단계씩 바꾼다. 고른 굵기는 기억한다.
+        action("굵기: ${InkView.WIDTH_NAMES[ink.widthLevel]}") { b ->
+            ink.widthLevel = (ink.widthLevel + 1) % InkView.WIDTH_NAMES.size
+            Prefs(context).setInkWidthLevel("practice", ink.widthLevel)
+            b.text = "굵기: ${InkView.WIDTH_NAMES[ink.widthLevel]}"
+        }
         action("따라쓰기 끄기") { b ->
             ghostOn = !ghostOn
             b.text = if (ghostOn) "따라쓰기 끄기" else "따라쓰기 켜기"
